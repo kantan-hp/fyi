@@ -1,0 +1,14 @@
+name = "kantan-panel"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[vars]
+# Template repo that new sites are generated from. Must have
+# "Template repository" enabled in its GitHub settings.
+TEMPLATE_REPO = "lavasecurity/kantan-hp"
+
+# Create with: npx wrangler kv namespace create SITES
+# then paste the printed id below. Local `npm run dev` works without a real id.
+[[kv_namespaces]]
+binding = "SITES"
+id = "TODO_REPLACE_WITH_KV_NAMESPACE_ID"

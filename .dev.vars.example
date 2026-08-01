@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local development (npm run dev).
+# For production, set these with: npx wrangler secret put <NAME>
+
+# GitHub OAuth App (one app for the whole panel, created once by the operator).
+# Authorization callback URL must be: https://<your-worker-domain>/oauth/callback
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Any long random string (e.g. `openssl rand -hex 32`). Signs session cookies.
+SESSION_SECRET=
