@@ -410,7 +410,8 @@ async function provision(request, env) {
     };
     await putSecret('CF_API_TOKEN', cfToken);
     await putSecret('CF_ACCOUNT_ID', accountId);
-    ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID');
+    await putSecret('CF_PAGES_PROJECT', slug);
+    ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID, CF_PAGES_PROJECT');
 
     // 6. Direct-upload Pages project (no Git connection needed)
     await cf(cfToken, `/accounts/${accountId}/pages/projects`, {
