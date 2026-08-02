@@ -556,7 +556,7 @@ async function provision(request, env) {
     const pub = await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/public-key`);
     const keyBytes = Uint8Array.from(atob(pub.key), (c) => c.charCodeAt(0));
     const putSecret = async (name, value) => {
-      const sealed = sodium.crypto_box_seal(new TextEncoder().encode(value), keyBytes);
+      const sealed = sodium.seal(new TextEncoder().encode(value), keyBytes);
       let bin = '';
       for (const b of sealed) bin += String.fromCharCode(b);
       await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/${name}`, {
