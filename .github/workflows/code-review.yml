@@ -1,0 +1,20 @@
+name: Code Review
+
+# Reviews pull requests with the kantan-hp reusable OpenCodeReview (OCR)
+# workflow (alibaba/open-code-review, OSS) against the OpenCode Go plan
+# (deepseek-v4-flash). Public repo, so it reviews every PR automatically.
+# Requires the repo secret OCR_LLM_AUTH_TOKEN (OpenCode Go API key).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  code-review:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: kantan-hp/.github/.github/workflows/code-review.yml@main
+    secrets:
+      llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
