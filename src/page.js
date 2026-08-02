@@ -45,7 +45,12 @@ ul.steps li { padding: .15rem 0; }
 table.sites { width: 100%; border-collapse: collapse; font-size: .92rem; }
 table.sites th, table.sites td { text-align: left; padding: .6rem .4rem; border-bottom: 1px solid #eee; }
 table.sites th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #999; }
-.result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 10px; font-size: .85rem; }`;
+.result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 10px; font-size: .85rem; }
+.pbar { height: 8px; background: #eee; border-radius: 999px; overflow: hidden; margin: .75rem 0 .25rem; display: none; }
+.pbar.visible { display: block; }
+.pbar-fill { height: 100%; width: 0; background: #1a1a1a; border-radius: 999px; transition: width .35s ease; }
+.pbar-fill.ok { background: #157f3d; }
+.pbar-fill.err { background: #b3261e; }`;
 
 function shell(title, body) {
   return `<!doctype html>
@@ -238,6 +243,7 @@ export function appPage({ email, sites, hasSites }) {
           <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
         </label>
         <button class="btn" id="create" disabled>Create my website</button>
+        <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
         <div id="result"></div>
       </section>
@@ -321,28 +327,64 @@ export function appPage({ email, sites, hasSites }) {
 
       $('site-name').oninput = refreshCreateButton;
 
+      // Progress bar: simulated advance while the single provisioning POST runs
+      // (there is no per-step streaming yet), then snap to 100% (ok) or 85% (err).
+      const pbar = $('pbar'), pfill = $('pbar-fill');
+      let barAnim = null;
+      const setBar = (width, cls) => {
+        pfill.classList.remove('ok', 'err');
+        if (cls) pfill.classList.add(cls);
+        pfill.style.width = width;
+      };
+      const stopBar = () => { if (barAnim) clearInterval(barAnim); barAnim = null; };
+
       $('create').onclick = async () => {
         $('create').disabled = true;
         $('result').innerHTML = '';
         const prog = $('progress');
         prog.innerHTML = '';
+        pbar.classList.add('visible');
+        setBar('5%', null);
+        const start = Date.now();
+        const DURATION = 40000; // provisioning typically takes tens of seconds
+        barAnim = setInterval(() => {
+          const t = Math.min(1, (Date.now() - start) / DURATION);
+          pfill.style.width = (5 + 80 * t) + '%';
+        }, 250);
         const addStep = (s) => {
           const li = document.createElement('li');
           li.textContent = (s.ok ? '✓ ' : '✗ ') + s.name + (s.detail ? ' — ' + s.detail : '');
           li.className = s.ok ? 'ok' : 'err';
           prog.appendChild(li);
         };
-        const r = await fetch('/api/provision', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            siteName: $('site-name').value,
-            cfToken, cfAccountId,
-            public: $('site-public').checked,
-          }),
-        });
-        const data = await r.json();
+        let data;
+        try {
+          const r = await fetch('/api/provision', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              siteName: $('site-name').value,
+              cfToken, cfAccountId,
+              public: $('site-public').checked,
+            }),
+          });
+          data = await r.json();
+        } catch (err) {
+          stopBar();
+          setBar('85%', 'err');
+          const div = document.createElement('div');
+          div.className = 'status err';
+          div.style.marginTop = '.5rem';
+          div.textContent = 'Provisioning failed: ' +
+            ((err && err.message) ? err.message : 'could not reach the server') +
+            '. Your site may be partially created; check GitHub and retry.';
+          $('result').appendChild(div);
+          $('create').disabled = false;
+          return;
+        }
+        stopBar();
         (data.steps || []).forEach(addStep);
         if (data.ok) {
+          setBar('100%', 'ok');
           $('result').innerHTML =
             '<div class="result"><strong>Your site is being built.</strong><br>' +
             'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
@@ -351,6 +393,7 @@ export function appPage({ email, sites, hasSites }) {
             '<span class="muted">' + data.site.note + '</span></div>';
           setTimeout(() => { location.href = '/app'; }, 2500);
         } else {
+          setBar('85%', 'err');
           const div = document.createElement('div');
           div.className = 'status err';
           div.style.marginTop = '.5rem';
