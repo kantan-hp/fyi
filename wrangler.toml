@@ -2,13 +2,27 @@ name = "kantan-panel"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
-[vars]
-# Template repo that new sites are generated from. Must have
-# "Template repository" enabled in its GitHub settings.
-TEMPLATE_REPO = "lavasecurity/kantan-hp"
+# The panel lives at the apex: a single origin keeps the GitHub OAuth App's
+# single callback URL stable and gives Decap one shared proxy base_url.
+routes = [
+  { pattern = "kantan-hp.fyi/*", zone_id = "ac38c505c9f1a177a53f023d30f79283" },
+]
 
-# Create with: npx wrangler kv namespace create SITES
-# then paste the printed id below. Local `npm run dev` works without a real id.
+[vars]
+# Template repo new sites are generated from. Must have
+# "Template repository" enabled in its GitHub settings.
+TEMPLATE_REPO = "kantan-hp/template"
+
+# Magic-link codes + login rate limits (short-lived, single-use). Created with:
+#   npx wrangler kv namespace create KV
 [[kv_namespaces]]
-binding = "SITES"
-id = "TODO_REPLACE_WITH_KV_NAMESPACE_ID"
+binding = "KV"
+id = "b9caa68e1c04488b8e43ddaae6dd66c9"
+
+# Site registry — the only durable store. Created with:
+#   npx wrangler d1 create kantan-panel-db
+#   npx wrangler d1 migrations apply kantan-panel-db
+[[d1_databases]]
+binding = "DB"
+database_name = "kantan-panel-db"
+database_id = "974ffba8-8eb3-4be6-bcb4-69bb2b514a94"

@@ -1,207 +1,323 @@
-// The wizard UI. Deliberately minimal: one page, three steps, no framework.
+// kantan panel pages — vanilla HTML/CSS/JS, no framework. Deliberately minimal.
 
-export function wizardPage() {
+const BASE = `:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0; background: #faf9f7; color: #1a1a1a; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: #1a1a1a; }
+.wrap { max-width: 680px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.btn {
+  display: inline-block; font: inherit; font-size: .95rem; font-weight: 600;
+  padding: .65rem 1.3rem; border-radius: 999px; border: 1px solid #1a1a1a;
+  background: #1a1a1a; color: #fff; cursor: pointer; text-decoration: none;
+}
+.btn:hover { opacity: .9; }
+.btn.secondary { background: #fff; color: #1a1a1a; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+input[type="email"], input[type="text"], input[type="password"] {
+  font: inherit; font-size: .95rem; width: 100%; padding: .6rem .8rem;
+  border: 1px solid #d4d2cd; border-radius: 10px; background: #fff;
+}
+.muted { color: #777; }
+.err { color: #b3261e; }
+.ok { color: #157f3d; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; }
+.brand { font-weight: 700; font-size: 1.05rem; text-decoration: none; letter-spacing: -.01em; }
+.brand span { color: #9a9a9a; font-weight: 500; }
+.card { background: #fff; border: 1px solid #e8e6e1; border-radius: 14px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+.card h2 { font-size: 1rem; margin: 0 0 .4rem; display: flex; align-items: center; gap: .6rem; }
+.card p { font-size: .88rem; color: #555; margin: .2rem 0 .8rem; }
+.num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: #1a1a1a; color: #fff; font-size: .78rem; flex-shrink: 0;
+}
+#step2, #step3 { opacity: .45; pointer-events: none; transition: opacity .2s; }
+#step2.enabled, #step3.enabled { opacity: 1; pointer-events: auto; }
+.hidden { display: none; }
+.status { font-size: .85rem; margin-top: .5rem; }
+code { background: #f0efec; padding: .1rem .3rem; border-radius: 4px; font-size: .85em; }
+ul.steps { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .85rem; }
+ul.steps li { padding: .15rem 0; }
+table.sites { width: 100%; border-collapse: collapse; font-size: .92rem; }
+table.sites th, table.sites td { text-align: left; padding: .6rem .4rem; border-bottom: 1px solid #eee; }
+table.sites th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #999; }
+.result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 10px; font-size: .85rem; }`;
+
+function shell(title, body) {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>kantan panel</title>
-<style>
-  :root { color-scheme: light; }
-  * { box-sizing: border-box; }
-  body {
-    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-    margin: 0; background: #fafafa; color: #1a1a1a; line-height: 1.5;
-  }
-  main { max-width: 620px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
-  .sub { color: #666; font-size: .9rem; margin-bottom: 2rem; }
-  .card {
-    background: #fff; border: 1px solid #e5e5e5; border-radius: 10px;
-    padding: 1.25rem 1.5rem; margin-bottom: 1rem;
-  }
-  .card h2 { font-size: 1rem; margin: 0 0 .5rem; display: flex; align-items: center; gap: .5rem; }
-  .num {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 1.4rem; height: 1.4rem; border-radius: 50%;
-    background: #1a1a1a; color: #fff; font-size: .8rem; flex-shrink: 0;
-  }
-  .card p { font-size: .85rem; color: #555; margin: .25rem 0 .75rem; }
-  button {
-    font: inherit; font-size: .9rem; padding: .55rem 1.1rem; border-radius: 8px;
-    border: 1px solid #1a1a1a; background: #1a1a1a; color: #fff; cursor: pointer;
-  }
-  button.secondary { background: #fff; color: #1a1a1a; }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  input[type="text"], input[type="password"] {
-    font: inherit; font-size: .9rem; width: 100%; padding: .5rem .7rem;
-    border: 1px solid #ccc; border-radius: 8px; margin-bottom: .6rem;
-  }
-  .status { font-size: .85rem; margin-top: .5rem; }
-  .ok { color: #157f3d; }
-  .err { color: #b3261e; }
-  .muted { color: #888; }
-  a { color: #1a1a1a; }
-  ul.steps { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .85rem; }
-  ul.steps li { padding: .15rem 0; }
-  ul.sites { list-style: none; padding: 0; margin: .5rem 0 0; font-size: .9rem; }
-  ul.sites li { padding: .4rem 0; border-top: 1px solid #eee; }
-  ul.sites .meta { font-size: .78rem; color: #888; }
-  .result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 8px; font-size: .85rem; }
-  code { background: #f0f0f0; padding: .1rem .3rem; border-radius: 4px; font-size: .85em; }
-  #step2, #step3 { opacity: .45; pointer-events: none; transition: opacity .2s; }
-  #step2.enabled, #step3.enabled { opacity: 1; pointer-events: auto; }
-  .hidden { display: none; }
-</style>
+<title>${title} — kantan</title>
+<style>${BASE}</style>
 </head>
 <body>
-<main>
-  <h1>kantan panel <span class="muted" style="font-weight:normal">(poc)</span></h1>
-  <div class="sub">Create your own kantan-hp website in about a minute.</div>
-
-  <div class="card" id="step1">
-    <h2><span class="num">1</span> Connect GitHub</h2>
-    <p>Your site lives in a new repository in your GitHub account. We ask for
-       <code>repo</code> access so we can create it and set it up for you.</p>
-    <div id="gh-logged-out">
-      <button onclick="location.href='/auth/github'">Login with GitHub</button>
-    </div>
-    <div id="gh-logged-in" class="hidden">
-      <div class="status ok">✓ Connected as <strong id="gh-login"></strong>
-        &nbsp;<a href="/api/logout" class="muted" style="font-size:.8rem">switch account</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" id="step2">
-    <h2><span class="num">2</span> Connect Cloudflare</h2>
-    <p>Paste an API token with the <strong>Cloudflare Pages: Edit</strong> permission
-       (<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">create one</a> →
-       "Create Custom Token"). It is used once to create your site and is never stored here.</p>
-    <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
-    <button class="secondary" id="cf-verify">Verify token</button>
-    <div class="status" id="cf-status"></div>
-  </div>
-
-  <div class="card" id="step3">
-    <h2><span class="num">3</span> Name your site</h2>
-    <p>This becomes your repository name and your free address:
-       <code>&lt;name&gt;.pages.dev</code></p>
-    <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
-    <button id="create" disabled>Create my website</button>
-    <ul class="steps" id="progress"></ul>
-    <div id="result"></div>
-  </div>
-
-  <div class="card hidden" id="sites-card">
-    <h2>Your sites</h2>
-    <ul class="sites" id="sites"></ul>
-  </div>
-</main>
-
-<script>
-const $ = (id) => document.getElementById(id);
-let cfToken = null, cfAccountId = null, loggedIn = false;
-
-function refreshCreateButton() {
-  $('create').disabled = !(loggedIn && cfToken && $('site-name').value.trim());
-}
-
-async function init() {
-  const r = await fetch('/api/me');
-  if (r.ok) {
-    const me = await r.json();
-    loggedIn = true;
-    $('gh-login').textContent = '@' + me.login;
-    $('gh-logged-out').classList.add('hidden');
-    $('gh-logged-in').classList.remove('hidden');
-    $('step2').classList.add('enabled');
-    loadSites();
-  }
-}
-
-async function loadSites() {
-  const r = await fetch('/api/sites');
-  if (!r.ok) return;
-  const { sites } = await r.json();
-  if (!sites.length) return;
-  $('sites-card').classList.remove('hidden');
-  $('sites').innerHTML = sites.map(s =>
-    '<li><a href="' + s.origin + '" target="_blank" rel="noopener">' + s.origin.replace('https://', '') + '</a>' +
-    ' · <a href="' + s.origin + '/admin" target="_blank" rel="noopener">admin</a>' +
-    '<div class="meta">repo ' + s.repo + ' · created ' + new Date(s.createdAt).toLocaleString() + '</div></li>'
-  ).join('');
-}
-
-$('cf-verify').onclick = async () => {
-  const token = $('cf-token').value.trim();
-  const st = $('cf-status');
-  if (!token) { st.className = 'status err'; st.textContent = 'Paste a token first.'; return; }
-  st.className = 'status muted'; st.textContent = 'Checking…';
-  const r = await fetch('/api/cf/accounts', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    st.className = 'status err';
-    st.textContent = '✗ ' + (data.error || 'Token rejected. Needs "Cloudflare Pages: Edit".');
-    return;
-  }
-  cfToken = token;
-  if (data.accounts.length === 1) {
-    cfAccountId = data.accounts[0].id;
-    st.className = 'status ok';
-    st.textContent = '✓ Token works — account: ' + data.accounts[0].name;
-  } else {
-    cfAccountId = null;
-    st.className = 'status ok';
-    st.textContent = '✓ Token works. Multiple accounts found; the first will be used (POC).';
-  }
-  $('step3').classList.add('enabled');
-  refreshCreateButton();
-};
-
-$('site-name').oninput = refreshCreateButton;
-
-$('create').onclick = async () => {
-  $('create').disabled = true;
-  $('result').innerHTML = '';
-  const prog = $('progress');
-  prog.innerHTML = '';
-  const addStep = (s) => {
-    const li = document.createElement('li');
-    li.textContent = (s.ok ? '✓ ' : '✗ ') + s.name + (s.detail ? ' — ' + s.detail : '');
-    li.className = s.ok ? 'ok' : 'err';
-    prog.appendChild(li);
-  };
-  const r = await fetch('/api/provision', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ siteName: $('site-name').value, cfToken, cfAccountId }),
-  });
-  const data = await r.json();
-  (data.steps || []).forEach(addStep);
-  if (data.ok) {
-    $('result').innerHTML =
-      '<div class="result"><strong>Your site is being built.</strong><br>' +
-      'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
-      'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a><br>' +
-      'Editor: <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
-      '<span class="muted">' + data.site.note + '</span></div>';
-    loadSites();
-  } else {
-    const div = document.createElement('div');
-    div.className = 'status err';
-    div.style.marginTop = '.5rem';
-    div.textContent = data.error || 'Provisioning failed.';
-    $('result').appendChild(div);
-    $('create').disabled = false;
-  }
-};
-
-init();
-</script>
+${body}
 </body>
 </html>`;
+}
+
+export function welcomePage({ email }) {
+  const cta = email
+    ? `<a class="btn" href="/app">Open your dashboard</a>`
+    : `<a class="btn" href="/login">Get started</a>`;
+  return shell(
+    'kantan — publish a blog in minutes',
+    `<main class="wrap">
+      <header class="topbar">
+        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        ${email ? `<a class="muted" style="font-size:.85rem" href="/app">Dashboard</a>` : ''}
+      </header>
+      <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
+        A free blog you can <em>actually</em> publish to in minutes.
+      </h1>
+      <p style="font-size:1.1rem; color:#555; max-width:34rem">
+        kantan (かんたん) means <strong>simple</strong>. Sign in with just your email,
+        and kantan wires up your GitHub repo, hosting, and editor for you.
+      </p>
+      <p style="margin:1.5rem 0 3rem">${cta}</p>
+      <section class="card"><h2>How it works</h2>
+        <ol style="font-size:.95rem; margin:.5rem 0 0; padding-left:1.1rem; color:#333">
+          <li><strong>Sign in with your email</strong> — no passwords, no GitHub login for the panel.</li>
+          <li><strong>Connect GitHub + Cloudflare</strong> — one paste of a Cloudflare token; kantan creates everything.</li>
+          <li><strong>Write & publish</strong> — edit posts in a friendly editor; every save rebuilds your site.</li>
+        </ol>
+      </section>
+      <section class="card"><h2>Your keys stay yours</h2>
+        <p style="margin-bottom:0">
+          kantan never stores your GitHub or Cloudflare credentials. They are used for the
+          seconds it takes to create your site, written into <strong>your own repository</strong>
+          as deployment secrets, and discarded. You can revoke or rotate them any time.
+        </p>
+      </section>
+    </main>`,
+  );
+}
+
+export function loginPage({ error } = {}) {
+  return shell(
+    'Sign in — kantan',
+    `<main class="wrap">
+      <header class="topbar">
+        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        <a class="muted" style="font-size:.85rem" href="/">Back</a>
+      </header>
+      <div class="card" style="max-width:420px">
+        <h2>Sign in</h2>
+        <p>Enter your email and we'll send you a one-time login link.</p>
+        <form id="login">
+          <input type="email" id="email" placeholder="you@example.com" required autofocus />
+          <button class="btn" type="submit" style="margin-top:.75rem; width:100%">Email me a login link</button>
+        </form>
+        <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
+      </div>
+    </main>
+    <script>
+      const form = document.getElementById('login');
+      const status = document.getElementById('status');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = form.querySelector('button');
+        btn.disabled = true;
+        status.innerHTML = '<span class="muted">Sending…</span>';
+        const r = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email: document.getElementById('email').value }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          status.innerHTML = '<span class="err">' + (data.error || 'Could not send the link.') + '</span>';
+          btn.disabled = false;
+          return;
+        }
+        status.innerHTML = '<span class="ok">✓ Check your inbox — the link expires in 15 minutes.</span>';
+        if (data.devLink) {
+          status.insertAdjacentHTML('beforeend',
+            '<br><span class="muted" style="font-size:.8rem">No email provider configured (dev mode). Link:</span>' +
+            '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
+        }
+      });
+    </script>`,
+  );
+}
+
+export function messagePage(title, text) {
+  return shell(
+    title,
+    `<main class="wrap"><div class="card">
+      <h2>${title}</h2>
+      <p>${text}</p>
+      <p><a class="btn secondary" href="/">Back to kantan</a></p>
+    </div></main>`,
+  );
+}
+
+export function appPage({ email, sites, hasSites }) {
+  const table = hasSites
+    ? `<section class="card" id="sites-card">
+        <h2>Your sites</h2>
+        <table class="sites">
+          <thead><tr><th>Site</th><th>Created</th><th></th></tr></thead>
+          <tbody>
+            ${sites
+              .map(
+                (s) =>
+                  `<tr>
+                    <td><a href="${s.origin}" target="_blank" rel="noopener">${s.origin.replace('https://', '')}</a></td>
+                    <td class="muted">${new Date(s.created_at).toLocaleDateString()}</td>
+                    <td><a href="${s.origin}/admin" target="_blank" rel="noopener" style="font-size:.85rem">editor</a></td>
+                  </tr>`,
+              )
+              .join('')}
+          </tbody>
+        </table>
+        <button class="btn secondary" id="new-site" style="margin-top:.75rem">Create another site</button>
+      </section>`
+    : '';
+  const wizardHidden = hasSites ? ' hidden' : '';
+  return shell(
+    'Dashboard — kantan',
+    `<main class="wrap">
+      <header class="topbar">
+        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        <div style="font-size:.85rem" class="muted">${email} &nbsp;<a href="/api/logout">logout</a></div>
+      </header>
+
+      ${table}
+
+      <section class="card" id="wizard${wizardHidden}">
+        <h2><span class="num">1</span> Connect GitHub</h2>
+        <p>Your site lives in a new repository in your GitHub account. We ask for
+           <code>repo</code> access so we can create it and set it up for you.</p>
+        <div id="gh-logged-out">
+          <button class="btn" onclick="location.href='/auth/github'">Connect GitHub</button>
+        </div>
+        <div id="gh-logged-in" class="hidden">
+          <div class="status ok">✓ Connected as <strong id="gh-login"></strong>
+            &nbsp;<a href="/api/wizard/logout" class="muted" style="font-size:.8rem">switch account</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="step2">
+        <h2><span class="num">2</span> Connect Cloudflare</h2>
+        <p>Paste an API token with the <strong>Cloudflare Pages: Edit</strong> permission
+           (<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">create one</a> →
+           "Create Custom Token"). It is used once to create your site and is never stored here.</p>
+        <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
+        <button class="btn secondary" id="cf-verify">Verify token</button>
+        <div class="status" id="cf-status"></div>
+      </section>
+
+      <section class="card" id="step3">
+        <h2><span class="num">3</span> Name your site</h2>
+        <p>This becomes your repository name and your free address:
+           <code>&lt;name&gt;.pages.dev</code></p>
+        <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
+        <button class="btn" id="create" disabled>Create my website</button>
+        <ul class="steps" id="progress"></ul>
+        <div id="result"></div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let cfToken = null, cfAccountId = null, ghConnected = false;
+
+      const wizard = $('wizard');
+      const newSite = $('new-site');
+      if (newSite) newSite.onclick = () => {
+        wizard.classList.remove('hidden');
+        newSite.classList.add('hidden');
+        wizard.scrollIntoView({ behavior: 'smooth' });
+      };
+
+      function refreshCreateButton() {
+        $('create').disabled = !(ghConnected && cfToken && $('site-name').value.trim());
+      }
+
+      async function init() {
+        const r = await fetch('/api/wizard/me');
+        if (r.ok) {
+          const me = await r.json();
+          ghConnected = true;
+          $('gh-login').textContent = '@' + me.login;
+          $('gh-logged-out').classList.add('hidden');
+          $('gh-logged-in').classList.remove('hidden');
+          $('step2').classList.add('enabled');
+          refreshCreateButton();
+        }
+      }
+
+      $('cf-verify').onclick = async () => {
+        const token = $('cf-token').value.trim();
+        const st = $('cf-status');
+        if (!token) { st.className = 'status err'; st.textContent = 'Paste a token first.'; return; }
+        st.className = 'status muted'; st.textContent = 'Checking…';
+        const r = await fetch('/api/cf/accounts', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          st.className = 'status err';
+          st.textContent = '✗ ' + (data.error || 'Token rejected. Needs "Cloudflare Pages: Edit".');
+          return;
+        }
+        cfToken = token;
+        cfAccountId = data.accounts.length === 1 ? data.accounts[0].id : null;
+        st.className = 'status ok';
+        st.textContent = data.accounts.length === 1
+          ? '✓ Token works — account: ' + data.accounts[0].name
+          : '✓ Token works. Multiple accounts found; the first will be used (POC).';
+        $('step3').classList.add('enabled');
+        refreshCreateButton();
+      };
+
+      $('site-name').oninput = refreshCreateButton;
+
+      $('create').onclick = async () => {
+        $('create').disabled = true;
+        $('result').innerHTML = '';
+        const prog = $('progress');
+        prog.innerHTML = '';
+        const addStep = (s) => {
+          const li = document.createElement('li');
+          li.textContent = (s.ok ? '✓ ' : '✗ ') + s.name + (s.detail ? ' — ' + s.detail : '');
+          li.className = s.ok ? 'ok' : 'err';
+          prog.appendChild(li);
+        };
+        const r = await fetch('/api/provision', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ siteName: $('site-name').value, cfToken, cfAccountId }),
+        });
+        const data = await r.json();
+        (data.steps || []).forEach(addStep);
+        if (data.ok) {
+          $('result').innerHTML =
+            '<div class="result"><strong>Your site is being built.</strong><br>' +
+            'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
+            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a><br>' +
+            'Editor: <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
+            '<span class="muted">' + data.site.note + '</span></div>';
+          setTimeout(() => { location.href = '/app'; }, 2500);
+        } else {
+          const div = document.createElement('div');
+          div.className = 'status err';
+          div.style.marginTop = '.5rem';
+          div.textContent = data.error || 'Provisioning failed.';
+          $('result').appendChild(div);
+          $('create').disabled = false;
+        }
+      };
+
+      init();
+    </script>`,
+  );
 }

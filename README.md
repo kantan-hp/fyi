@@ -1,17 +1,19 @@
-# kantan panel (POC)
+# kantan panel (MVP)
 
-A proof-of-concept control panel that turns [kantan-hp](https://github.com/lavasecurity/kantan-hp)
-setup into a three-step wizard:
+The kantan control plane — a single Cloudflare Worker behind `kantan-hp.fyi` that
+turns [kantan-hp](https://github.com/kantan-hp/template) setup into:
 
-1. **Login with GitHub** — one OAuth click (the panel's own OAuth App; users never
-   create one).
-2. **Paste a Cloudflare API token** — used once, never stored (see below).
-3. **Pick a site name** → click **Create my website**.
-
-The worker then provisions everything: a repo generated from the kantan-hp template,
-a direct-upload Cloudflare Pages project, deploy secrets written into the repo, and
-Decap CMS pointed at the panel's **shared auth proxy** — so the per-site GitHub OAuth
-App dance disappears entirely.
+1. **Welcome page** — a one-pager explaining kantan and the 3-step pitch.
+2. **Email-only login** — no passwords, no GitHub login for the *panel*: a
+   single-use magic link is emailed, and clicking it sets an HMAC-signed session
+   cookie.
+3. **Wizard or site table** — `/app` shows the setup wizard if you have no sites
+   yet, or a table (name, created date, links to your live site and its `/admin`
+   editor) once you do.
+4. **One-click provisioning** — connect GitHub, paste a Cloudflare token, pick a
+   name. The worker generates a repo from the template, creates a direct-upload
+   Pages project, writes deploy secrets into *your own* repo, and points Decap at
+   the panel's **shared auth proxy**.
 
 ## Why this works
 
@@ -26,45 +28,65 @@ App dance disappears entirely.
 - GitHub's API is CORS-enabled, but Cloudflare's is not — that's why this worker
   exists instead of a pure client-side page.
 
-## Security notes (POC)
+## Storage — all inside Cloudflare
 
-- The GitHub token lives only in an HMAC-signed `HttpOnly` session cookie.
-- The Cloudflare token is held in memory during provisioning, written into the
-  *user's own repo* as Actions secrets (`CF_API_TOKEN`, `CF_ACCOUNT_ID`), then
-  discarded. The panel stores nothing.
-- KV stores only site metadata (`origin → {owner, repo, project, createdAt}`) —
-  it powers the site list and the Decap origin allowlist.
+- **D1** (`DB`): the site registry, scoped by owner email. The only durable store.
+- **KV** (`KV`): single-use magic-link codes + login rate limits. Nothing else.
+
+No Postgres, no Supabase — the data is a few tables at most, and this keeps the
+panel at effectively $0 and on one Cloudflare bill.
+
+## Zero-knowledge posture
+
+- The **panel session** cookie carries only `{sub: email}` — no tokens inside.
+- The **wizard's GitHub token** lives in a separate short-lived
+  `kantan_wizard_token` cookie (15 min), decoupled from the session, cleared the
+  moment provisioning succeeds.
+- The **Cloudflare token** is held in memory during provisioning, written into the
+  *user's own repo* as Actions secrets (`CF_API_TOKEN`, `CF_ACCOUNT_ID`,
+  `CF_PAGES_PROJECT`), then discarded. The panel stores nothing.
+- **Magic-link codes** are single-use, 15-minute TTL, rate-limited (3 per email
+  per 15 min).
 - The Decap handshake posts tokens only to origins that are (a) `https://*.pages.dev`,
-  (b) registered in KV, and (c) backed by a repo the token has push access to.
+  (b) registered in D1, and (c) backed by a repo the token has push access to.
 
 ## Operator setup (one time, ~10 minutes)
 
 Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
 
-1. **Make kantan-hp a template repo**: repo → Settings → check **"Template repository"**.
+1. **Make the template a template repo** (once): repo → Settings → check
+   **"Template repository"**. (`kantan-hp/template` already is.)
 2. **Create the panel's GitHub OAuth App**:
    GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
-   - Homepage URL: `https://<your-worker>.workers.dev`
-   - Authorization callback URL: `https://<your-worker>.workers.dev/oauth/callback`
-3. **Install & configure**:
+   - Homepage URL: `https://kantan-hp.fyi`
+   - Authorization callback URL: `https://kantan-hp.fyi/oauth/callback`
+   - (A second App points at `http://localhost:8787/oauth/callback` for local dev.)
+3. **Provision the Worker resources**:
    ```sh
-   npm install
-   npx wrangler kv namespace create SITES   # paste the id into wrangler.toml
+   npx wrangler kv namespace create KV     # paste id into wrangler.toml
+   npx wrangler d1 create kantan-panel-db  # paste id into wrangler.toml
+   npx wrangler d1 migrations apply kantan-panel-db --remote
+   ```
+4. **Set secrets**:
+   ```sh
    npx wrangler secret put GITHUB_CLIENT_ID
    npx wrangler secret put GITHUB_CLIENT_SECRET
    npx wrangler secret put SESSION_SECRET    # any long random string
+   npx wrangler secret put RESEND_API_KEY    # free tier is fine
+   npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi
    ```
-4. **Deploy**: `npm run deploy`
+5. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
 
 For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run dev`.
-(The OAuth App's callback URL must match the origin you log in through, so local
-OAuth testing needs a second OAuth App pointing at `http://localhost:8787/oauth/callback`.)
+Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
+emailing it, so the whole flow is testable locally with zero setup.
 
 ## What users need
 
-- A GitHub account.
-- A Cloudflare account and **one API token** with the *Cloudflare Pages: Edit*
-  permission (dash.cloudflare.com → My Profile → API Tokens → Create Custom Token).
+- Just an email address to sign in.
+- For the wizard: a GitHub account and a Cloudflare account with **one API token**
+  (dash.cloudflare.com → My Profile → API Tokens → Create Custom Token, *Cloudflare
+  Pages: Edit*).
 
 ## Known POC limitations
 
@@ -73,5 +95,5 @@ OAuth testing needs a second OAuth App pointing at `http://localhost:8787/oauth/
 - Multi-account Cloudflare tokens use the first account.
 - Custom domains are not wired up (the Decap origin allowlist only accepts
   `*.pages.dev`).
-- Later: proper accounts/login for the panel, key management UI, resume/idempotent
-  provisioning, custom domains.
+- The email session can't be revoked server-side (stateless HMAC cookie); logout
+  clears the cookie.

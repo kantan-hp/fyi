@@ -1,18 +1,20 @@
-// kantan panel (POC) — a single stateless Cloudflare Worker that:
+// kantan panel (MVP) — a single Cloudflare Worker that:
 //
-//   1. Serves a minimal wizard page (/).
-//   2. Logs the user in with GitHub OAuth (the panel's one OAuth App).
-//   3. Provisions a kantan-hp site: generates a repo from the template,
-//      writes Cloudflare deploy secrets into it, creates a direct-upload
+//   1. Serves a welcome one-pager (/) and an email-only magic-link login (/login).
+//   2. Routes /app to a setup wizard (no sites yet) or a site table.
+//   3. Provisions a kantan-hp site: generates a repo from the template, writes
+//      Cloudflare deploy secrets into the user's own repo, creates a direct-upload
 //      Pages project, and points Decap at this worker's shared auth proxy.
-//   4. Hosts the shared Decap OAuth proxy (/api/decap/auth → /oauth/callback)
-//      so end users never create a GitHub OAuth App.
+//   4. Hosts the shared Decap OAuth proxy (/api/decap/auth → /oauth/callback) so
+//      end users never create a GitHub OAuth App.
 //
-// Storage: one KV namespace (SITES) holding only site metadata
-// (origin → {owner, repo, project, createdAt}). No user secrets are stored;
-// the GitHub token lives in an HMAC-signed session cookie, the Cloudflare
-// token is used once during provisioning and written straight into the
-// user's repo as an Actions secret.
+// Storage:
+//   - D1 (DB): the site registry, scoped by owner email (strongly consistent).
+//   - KV (KV): single-use magic-link codes + login rate limits only.
+// No user secrets are stored server-side: the email session cookie carries only
+// {sub: email}; the wizard's GitHub token lives in a short-lived
+// kantan_wizard_token cookie cleared after provisioning; the Cloudflare token is
+// used once in memory and written straight into the user's repo as a secret.
 
 import sodium from 'tweetsodium';
 import {
@@ -23,14 +25,22 @@ import {
   verifyPayload,
   parseCookies,
   isAllowedSiteOrigin,
+  normalizeEmail,
+  isValidEmail,
+  randomHex,
 } from './lib.js';
-import { wizardPage } from './page.js';
+import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 
 const GITHUB_API = 'https://api.github.com';
 const CF_API = 'https://api.cloudflare.com/client/v4';
 const SESSION_COOKIE = 'kantan_session';
+const WIZARD_COOKIE = 'kantan_wizard_token';
 const NONCE_COOKIE = 'kantan_oauth_nonce';
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const WIZARD_MAX_AGE_MS = 15 * 60 * 1000;
+const MAGIC_TTL_SECONDS = 15 * 60;
+const MAGIC_MAX_PER_WINDOW = 3;
+const MAGIC_WINDOW_SECONDS = 15 * 60;
 
 export default {
   async fetch(request, env) {
@@ -38,23 +48,34 @@ export default {
     const { pathname } = url;
     const method = request.method;
     try {
+      // Public pages
       if (pathname === '/' && method === 'GET') {
-        return new Response(wizardPage(), {
-          headers: { 'content-type': 'text/html;charset=UTF-8' },
-        });
+        const session = await getSession(request, env);
+        return html(welcomePage({ email: session ? session.sub : null }));
       }
-      if (pathname === '/auth/github') return oauthStart(request, env, 'panel');
-      if (pathname === '/api/decap/auth') return oauthStart(request, env, 'decap');
-      if (pathname === '/oauth/callback') return oauthCallback(request, env);
+      if (pathname === '/login' && method === 'GET') return html(loginPage());
+      if (pathname === '/login/callback' && method === 'GET') return loginCallback(request, env);
+      if (pathname === '/app' && method === 'GET') return appRoute(request, env);
+
+      // Panel APIs
+      if (pathname === '/api/login' && method === 'POST') return loginIssue(request, env);
       if (pathname === '/api/logout') return logout(request);
       if (pathname === '/api/me') return apiMe(request, env);
       if (pathname === '/api/sites') return listSites(request, env);
-      if (pathname === '/api/decap/lookup') return decapLookup(request, env);
+      if (pathname === '/api/wizard/me') return wizardMe(request, env);
+      if (pathname === '/api/wizard/logout') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request);
       if (pathname === '/api/provision' && method === 'POST') return provision(request, env);
-      return json({ error: 'not found' }, 404);
+
+      // OAuth — wizard GitHub connect + Decap shared proxy (single callback URL)
+      if (pathname === '/auth/github') return oauthStart(request, env, 'wizard');
+      if (pathname === '/api/decap/auth') return oauthStart(request, env, 'decap');
+      if (pathname === '/oauth/callback') return oauthCallback(request, env);
+      if (pathname === '/api/decap/lookup') return decapLookup(request, env);
+
+      return html(messagePage('Not found', 'That page does not exist.'), 404);
     } catch (err) {
-      return json({ error: String((err && err.message) || err) }, 500);
+      return html(messagePage('Something went wrong', String((err && err.message) || err)), 500);
     }
   },
 };
@@ -69,6 +90,10 @@ function json(obj, status = 200) {
   });
 }
 
+function html(body, status = 200) {
+  return new Response(body, { status, headers: { 'content-type': 'text/html;charset=UTF-8' } });
+}
+
 function text(body, status = 200) {
   return new Response(body, { status, headers: { 'content-type': 'text/plain;charset=UTF-8' } });
 }
@@ -80,63 +105,162 @@ function cookie(name, value, { secure = true, maxAge } = {}) {
   return c;
 }
 
+function redirect(location) {
+  return new Response(null, { status: 302, headers: { location } });
+}
+
 function isHttps(request) {
   return new URL(request.url).protocol === 'https:';
 }
 
+// ---------------------------------------------------------------------------
+// Sessions
+
 async function getSession(request, env) {
   const cookies = parseCookies(request.headers.get('cookie'));
-  const session = await verifyPayload(env.SESSION_SECRET, cookies[SESSION_COOKIE]);
-  if (!session || !session.t || !session.login) return null;
-  if (Date.now() - (session.ts || 0) > SESSION_MAX_AGE_MS) return null;
-  return session;
+  const s = await verifyPayload(env.SESSION_SECRET, cookies[SESSION_COOKIE]);
+  if (!s || !s.sub) return null;
+  if (Date.now() - (s.ts || 0) > SESSION_MAX_AGE_MS) return null;
+  return s;
 }
 
-function ghHeaders(token) {
-  return {
-    authorization: `Bearer ${token}`,
-    accept: 'application/vnd.github+json',
-    'user-agent': 'kantan-panel-poc',
-    'x-github-api-version': '2022-11-28',
-  };
+async function getWizard(request, env) {
+  const cookies = parseCookies(request.headers.get('cookie'));
+  const w = await verifyPayload(env.SESSION_SECRET, cookies[WIZARD_COOKIE]);
+  if (!w || !w.t || !w.login) return null;
+  if (Date.now() - (w.ts || 0) > WIZARD_MAX_AGE_MS) return null;
+  return w;
 }
 
-async function gh(token, path, { method = 'GET', body } = {}) {
-  const res = await fetch(GITHUB_API + path, {
-    method,
-    headers: { ...ghHeaders(token), ...(body ? { 'content-type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res;
+// ---------------------------------------------------------------------------
+// D1 site registry
+
+async function getSitesByEmail(env, email) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM sites WHERE owner_email = ? ORDER BY created_at DESC',
+  )
+    .bind(email)
+    .all();
+  return results;
 }
 
-async function ghJson(token, path, opts) {
-  const res = await gh(token, path, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`GitHub ${opts?.method || 'GET'} ${path} failed (${res.status}): ${data.message || res.statusText}`);
+async function getSiteByOrigin(env, origin) {
+  return env.DB.prepare('SELECT * FROM sites WHERE origin = ?').bind(origin).first();
+}
+
+// ---------------------------------------------------------------------------
+// Email magic-link login
+
+async function loginIssue(request, env) {
+  const { email } = await request.json().catch(() => ({}));
+  const normalized = normalizeEmail(email);
+  if (!isValidEmail(normalized)) {
+    return json({ ok: false, error: 'Enter a valid email address.' }, 400);
   }
-  return data;
+
+  const rlKey = `rl:login:${normalized}`;
+  const rl = JSON.parse((await env.KV.get(rlKey)) || '{"count":0}');
+  if (rl.count >= MAGIC_MAX_PER_WINDOW) {
+    return json({ ok: false, error: 'Too many login links. Try again in a few minutes.' }, 429);
+  }
+  rl.count += 1;
+  await env.KV.put(rlKey, JSON.stringify(rl), { expirationTtl: MAGIC_WINDOW_SECONDS });
+
+  const code = randomHex(16);
+  await env.KV.put(`magic:${code}`, normalized, { expirationTtl: MAGIC_TTL_SECONDS });
+
+  // env.PANEL_BASE_URL overrides the request origin for local dev, where wrangler
+  // dev rewrites request.url to the route hostname (kantan-hp.fyi).
+  const base = env.PANEL_BASE_URL || new URL(request.url).origin;
+  const link = `${base}/login/callback?code=${code}`;
+  const delivered = await sendMagicEmail(env, normalized, link);
+  if (!delivered) {
+    // No mail provider configured (dev): surface the link so the flow is testable.
+    return json({
+      ok: true,
+      devLink: link,
+      note: 'Email provider not configured — magic link shown for development only.',
+    });
+  }
+  return json({ ok: true });
 }
 
-async function cf(token, path, { method = 'GET', body } = {}) {
-  const res = await fetch(CF_API + path, {
-    method,
+async function sendMagicEmail(env, email, link) {
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return false;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
     headers: {
-      authorization: `Bearer ${token}`,
-      ...(body ? { 'content-type': 'application/json' } : {}),
+      authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'content-type': 'application/json',
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: JSON.stringify({
+      from: env.EMAIL_FROM,
+      to: [email],
+      subject: 'Your kantan login link',
+      text: `Open this link to sign in to your kantan panel (expires in 15 minutes):\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.`,
+    }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.success === false) {
-    const msg = (data.errors || []).map((e) => e.message).join('; ') || res.statusText;
-    throw new Error(`Cloudflare ${method} ${path} failed (${res.status}): ${msg}`);
-  }
-  return data.result;
+  return res.ok;
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function loginCallback(request, env) {
+  const code = new URL(request.url).searchParams.get('code') || '';
+  const key = `magic:${code}`;
+  const email = await env.KV.get(key);
+  if (!email) {
+    return html(loginPage({ error: 'This login link is invalid or has expired. Request a new one.' }), 400);
+  }
+  await env.KV.delete(key); // single-use
+  const session = await signPayload(env.SESSION_SECRET, { sub: email, ts: Date.now() });
+  const headers = new Headers({ location: '/app' });
+  headers.append(
+    'set-cookie',
+    cookie(SESSION_COOKIE, session, { secure: isHttps(request), maxAge: SESSION_MAX_AGE_MS / 1000 }),
+  );
+  return new Response(null, { status: 302, headers });
+}
+
+function logout(request) {
+  const headers = new Headers({ location: '/login' });
+  headers.append('set-cookie', cookie(SESSION_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
+  headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
+  return new Response(null, { status: 302, headers });
+}
+
+// ---------------------------------------------------------------------------
+// Panel session APIs
+
+async function apiMe(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  return json({ email: session.sub });
+}
+
+async function appRoute(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return redirect('/login');
+  const sites = await getSitesByEmail(env, session.sub);
+  return html(appPage({ email: session.sub, sites, hasSites: sites.length > 0 }));
+}
+
+async function listSites(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  return json({ sites: await getSitesByEmail(env, session.sub) });
+}
+
+async function wizardMe(request, env) {
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'not connected' }, 401);
+  return json({ login: wizard.login });
+}
+
+function wizardLogout(request) {
+  return new Response(null, {
+    status: 302,
+    headers: { location: '/app', 'set-cookie': cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }) },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // GitHub OAuth — one app, two flows. The OAuth App's single callback URL is
@@ -147,15 +271,15 @@ async function oauthStart(request, env, flow) {
   const url = new URL(request.url);
   const nonce = crypto.randomUUID();
   const state = await signPayload(env.SESSION_SECRET, { flow, nonce });
-  const redirect = new URL('https://github.com/login/oauth/authorize');
-  redirect.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
-  redirect.searchParams.set('redirect_uri', url.origin + '/oauth/callback');
-  redirect.searchParams.set('scope', 'repo');
-  redirect.searchParams.set('state', state);
+  const redirectUrl = new URL('https://github.com/login/oauth/authorize');
+  redirectUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
+  redirectUrl.searchParams.set('redirect_uri', url.origin + '/oauth/callback');
+  redirectUrl.searchParams.set('scope', 'repo');
+  redirectUrl.searchParams.set('state', state);
   return new Response(null, {
     status: 302,
     headers: {
-      location: redirect.href,
+      location: redirectUrl.href,
       'set-cookie': cookie(NONCE_COOKIE, nonce, { secure: isHttps(request), maxAge: 600 }),
     },
   });
@@ -164,7 +288,7 @@ async function oauthStart(request, env, flow) {
 async function exchangeCode(env, code) {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'kantan-panel-poc' },
+    headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'kantan-panel' },
     body: JSON.stringify({
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
@@ -181,7 +305,7 @@ async function oauthCallback(request, env) {
   const cookies = parseCookies(request.headers.get('cookie'));
   const clearNonce = cookie(NONCE_COOKIE, '', { secure: isHttps(request), maxAge: 0 });
   if (!state || !state.nonce || cookies[NONCE_COOKIE] !== state.nonce) {
-    return text('Invalid OAuth state. Please try again.', 403);
+    return html(messagePage('Invalid OAuth state', 'Please go back and try connecting GitHub again.'), 403);
   }
   if (!code) return text('Missing authorization code from GitHub.', 400);
 
@@ -190,24 +314,26 @@ async function oauthCallback(request, env) {
     return text(`GitHub OAuth failed: ${result.error_description || result.error}`, 401);
   }
 
-  if (state.flow === 'panel') {
+  if (state.flow === 'wizard') {
+    // Wizard flow: hand the token to a short-lived cookie decoupled from the
+    // email session, cleared after provisioning. Redirect back to /app.
     const me = await ghJson(result.access_token, '/user');
-    const session = await signPayload(env.SESSION_SECRET, {
+    const wizard = await signPayload(env.SESSION_SECRET, {
       t: result.access_token,
       login: me.login,
       ts: Date.now(),
     });
-    const headers = new Headers({ location: '/' });
+    const headers = new Headers({ location: '/app' });
     headers.append('set-cookie', clearNonce);
     headers.append(
       'set-cookie',
-      cookie(SESSION_COOKIE, session, { secure: isHttps(request), maxAge: SESSION_MAX_AGE_MS / 1000 }),
+      cookie(WIZARD_COOKIE, wizard, { secure: isHttps(request), maxAge: WIZARD_MAX_AGE_MS / 1000 }),
     );
     return new Response(null, { status: 302, headers });
   }
 
   // Decap flow: hand the token to the Decap window via postMessage, but only
-  // after the opener's origin has been validated (registered in KV *and* the
+  // after the opener's origin has been validated (registered in D1 *and* the
   // token has push access to that site's repo — checked client-side against
   // the GitHub API with the user's own token).
   return new Response(renderDecapHandshake({ token: result.access_token, provider: 'github' }), {
@@ -268,48 +394,56 @@ function renderDecapHandshake(content) {
 }
 
 // ---------------------------------------------------------------------------
-// Panel session APIs
+// Cloudflare + GitHub API helpers
 
-function logout(request) {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: '/',
-      'set-cookie': cookie(SESSION_COOKIE, '', { secure: isHttps(request), maxAge: 0 }),
-    },
+function ghHeaders(token) {
+  return {
+    authorization: `Bearer ${token}`,
+    accept: 'application/vnd.github+json',
+    'user-agent': 'kantan-panel',
+    'x-github-api-version': '2022-11-28',
+  };
+}
+
+async function gh(token, path, { method = 'GET', body } = {}) {
+  const res = await fetch(GITHUB_API + path, {
+    method,
+    headers: { ...ghHeaders(token), ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
   });
+  return res;
 }
 
-async function apiMe(request, env) {
-  const session = await getSession(request, env);
-  if (!session) return json({ error: 'not logged in' }, 401);
-  return json({ login: session.login });
-}
-
-async function listSites(request, env) {
-  const session = await getSession(request, env);
-  if (!session) return json({ error: 'not logged in' }, 401);
-  const { keys } = await env.SITES.list({ prefix: 'site:' });
-  const sites = [];
-  for (const key of keys) {
-    const record = await env.SITES.get(key.name, 'json');
-    if (record && record.owner === session.login) {
-      sites.push({ origin: key.name.slice('site:'.length), ...record });
-    }
+async function ghJson(token, path, opts) {
+  const res = await gh(token, path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`GitHub ${opts?.method || 'GET'} ${path} failed (${res.status}): ${data.message || res.statusText}`);
   }
-  sites.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  return json({ sites });
+  return data;
 }
 
-// Public, secret-free lookup used by the Decap handshake page: does this
-// origin belong to a provisioned site, and which repo backs it?
-async function decapLookup(request, env) {
-  const origin = new URL(request.url).searchParams.get('origin') || '';
-  if (!isAllowedSiteOrigin(origin)) return json({ error: 'origin not allowed' }, 403);
-  const record = await env.SITES.get(`site:${origin}`, 'json');
-  if (!record) return json({ error: 'unknown site' }, 404);
-  return json({ repo: record.repo });
+async function cf(token, path, { method = 'GET', body } = {}) {
+  const res = await fetch(CF_API + path, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    const msg = (data.errors || []).map((e) => e.message).join('; ') || res.statusText;
+    throw new Error(`Cloudflare ${method} ${path} failed (${res.status}): ${msg}`);
+  }
+  return data.result;
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------------------
+// Cloudflare account lookup (wizard step 2)
 
 async function cfAccounts(request) {
   const { token } = await request.json().catch(() => ({}));
@@ -323,11 +457,25 @@ async function cfAccounts(request) {
 }
 
 // ---------------------------------------------------------------------------
+// Public, secret-free lookup used by the Decap handshake page: does this
+// origin belong to a provisioned site, and which repo backs it?
+
+async function decapLookup(request, env) {
+  const origin = new URL(request.url).searchParams.get('origin') || '';
+  if (!isAllowedSiteOrigin(origin)) return json({ error: 'origin not allowed' }, 403);
+  const record = await getSiteByOrigin(env, origin);
+  if (!record) return json({ error: 'unknown site' }, 404);
+  return json({ repo: record.repo });
+}
+
+// ---------------------------------------------------------------------------
 // Provisioning
 
 async function provision(request, env) {
   const session = await getSession(request, env);
   if (!session) return json({ error: 'login required' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub first (step 1).' }, 401);
 
   const { siteName, cfToken, cfAccountId } = await request.json().catch(() => ({}));
   const steps = [];
@@ -338,8 +486,9 @@ async function provision(request, env) {
     const slug = slugifySiteName(siteName);
     if (!slug) throw new Error('Invalid site name — use letters, numbers and dashes (e.g. "my-blog").');
     if (!cfToken) throw new Error('Cloudflare API token is required.');
-    const ghT = session.t;
-    const login = session.login;
+    const ghT = wizard.t;
+    const login = wizard.login;
+    const email = session.sub;
     const panelOrigin = new URL(request.url).origin;
 
     // 1. Cloudflare account (auto-discovered from the token)
@@ -373,7 +522,7 @@ async function provision(request, env) {
     ok('pages-name-available', `${slug}.pages.dev`);
 
     // 3. Generate the repo from the template
-    const [tplOwner, tplName] = (env.TEMPLATE_REPO || 'lavasecurity/kantan-hp').split('/');
+    const [tplOwner, tplName] = (env.TEMPLATE_REPO || 'kantan-hp/template').split('/');
     await ghJson(ghT, `/repos/${tplOwner}/${tplName}/generate`, {
       method: 'POST',
       body: {
@@ -442,31 +591,37 @@ async function provision(request, env) {
     });
     ok('decap-configured', 'first deploy triggered');
 
-    // 8. Register the site (drives the site list and the Decap origin check)
+    // 8. Register the site in D1 (drives the site list and the Decap origin check)
     const origin = `https://${slug}.pages.dev`;
-    await env.SITES.put(
-      `site:${origin}`,
-      JSON.stringify({
-        owner: login,
-        repo: `${login}/${slug}`,
-        project: slug,
-        accountId,
-        createdAt: new Date().toISOString(),
-      }),
-    );
+    await env.DB.prepare(
+      'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(origin, email, login, `${login}/${slug}`, slug, accountId, new Date().toISOString())
+      .run();
     ok('site-registered', origin);
 
-    return json({
-      ok: true,
-      steps,
-      site: {
-        name: slug,
-        repo: `https://github.com/${login}/${slug}`,
-        url: origin,
-        admin: `${origin}/admin`,
-        note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
-      },
-    });
+    // Zero-knowledge: the GitHub token cookie dies the moment provisioning is done.
+    const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
+    headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
+
+    return new Response(
+      JSON.stringify(
+        {
+          ok: true,
+          steps,
+          site: {
+            name: slug,
+            repo: `https://github.com/${login}/${slug}`,
+            url: origin,
+            admin: `${origin}/admin`,
+            note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
+          },
+        },
+        null,
+        2,
+      ),
+      { headers },
+    );
   } catch (err) {
     fail('error', String((err && err.message) || err));
     return json({ ok: false, error: String((err && err.message) || err), steps }, 400);

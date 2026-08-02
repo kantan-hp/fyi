@@ -6,5 +6,11 @@
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 
-# Any long random string (e.g. `openssl rand -hex 32`). Signs session cookies.
+# Any long random string (e.g. `openssl rand -hex 32`). Signs session cookies,
+# magic-link codes and OAuth state.
 SESSION_SECRET=
+
+# Transactional email (Resend free tier) for magic links. Optional in dev —
+# without it, the panel shows the login link on screen instead of emailing it.
+RESEND_API_KEY=
+EMAIL_FROM=noreply@kantan-hp.fyi

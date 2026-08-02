@@ -8,6 +8,9 @@ import {
   isAllowedSiteOrigin,
   b64encode,
   b64decode,
+  normalizeEmail,
+  isValidEmail,
+  randomHex,
 } from '../src/lib.js';
 
 test('slugifySiteName accepts simple names', () => {
@@ -57,4 +60,25 @@ test('isAllowedSiteOrigin', () => {
 
 test('b64 roundtrip with unicode', () => {
   assert.equal(b64decode(b64encode('hello かんたん')), 'hello かんたん');
+});
+
+test('normalizeEmail trims and lowercases', () => {
+  assert.equal(normalizeEmail('  User@Example.COM  '), 'user@example.com');
+  assert.equal(normalizeEmail(''), '');
+});
+
+test('isValidEmail', () => {
+  assert.equal(isValidEmail('a@b.co'), true);
+  assert.equal(isValidEmail('user+tag@example.com'), true);
+  assert.equal(isValidEmail('nope'), false);
+  assert.equal(isValidEmail('a@b'), false);
+  assert.equal(isValidEmail(''), false);
+});
+
+test('randomHex produces hex of the requested length', () => {
+  const a = randomHex(16);
+  const b = randomHex(16);
+  assert.equal(a.length, 32);
+  assert.match(a, /^[0-9a-f]+$/);
+  assert.notEqual(a, b);
 });

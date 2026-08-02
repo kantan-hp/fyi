@@ -96,3 +96,20 @@ export function isAllowedSiteOrigin(origin) {
     return false;
   }
 }
+
+/** Lowercase + trim an email address for storage/lookup. */
+export function normalizeEmail(input) {
+  return String(input || '').trim().toLowerCase();
+}
+
+export function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** N random bytes as hex — magic-link codes. */
+export function randomHex(bytes = 16) {
+  const buf = crypto.getRandomValues(new Uint8Array(bytes));
+  let out = '';
+  for (const b of buf) out += b.toString(16).padStart(2, '0');
+  return out;
+}
