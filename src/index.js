@@ -480,7 +480,7 @@ async function provision(request, env) {
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub first (step 1).' }, 401);
 
-  const { siteName, cfToken, cfAccountId } = await request.json().catch(() => ({}));
+  const { siteName, cfToken, cfAccountId, public: sitePublic = false } = await request.json().catch(() => ({}));
   const steps = [];
   const ok = (name, detail) => steps.push({ name, ok: true, detail });
   const fail = (name, detail) => steps.push({ name, ok: false, detail });
@@ -537,7 +537,7 @@ async function provision(request, env) {
         name: slug,
         description: 'A kantan-hp site, provisioned by the kantan panel',
         include_all_branches: false,
-        private: false,
+        private: !sitePublic, // private by default; opt-in to public
       },
     });
     ok('repo-generated', `https://github.com/${login}/${slug}`);

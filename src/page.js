@@ -233,6 +233,10 @@ export function appPage({ email, sites, hasSites }) {
         <p>This becomes your repository name and your free address:
            <code>&lt;name&gt;.pages.dev</code></p>
         <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+          <input type="checkbox" id="site-public" /> Make this repository public
+          <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
+        </label>
         <button class="btn" id="create" disabled>Create my website</button>
         <ul class="steps" id="progress"></ul>
         <div id="result"></div>
@@ -330,7 +334,11 @@ export function appPage({ email, sites, hasSites }) {
         };
         const r = await fetch('/api/provision', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ siteName: $('site-name').value, cfToken, cfAccountId }),
+          body: JSON.stringify({
+            siteName: $('site-name').value,
+            cfToken, cfAccountId,
+            public: $('site-public').checked,
+          }),
         });
         const data = await r.json();
         (data.steps || []).forEach(addStep);
