@@ -173,20 +173,19 @@ async function loginIssue(request, env) {
   // dev rewrites request.url to the route hostname (kantan-hp.fyi).
   const base = env.PANEL_BASE_URL || new URL(request.url).origin;
   const link = `${base}/login/callback?code=${code}`;
-  const delivered = await sendMagicEmail(env, normalized, link);
-  if (!delivered) {
-    // No mail provider configured (dev): surface the link so the flow is testable.
-    return json({
-      ok: true,
-      devLink: link,
-      note: 'Email provider not configured — magic link shown for development only.',
-    });
+  const sent = await sendMagicEmail(env, normalized, link);
+  if (!sent.ok) {
+    // No working mail provider (dev): surface the link so the flow is testable,
+    // with the provider's reason so misconfiguration is self-diagnosing.
+    return json({ ok: true, devLink: link, note: `Magic link shown instead of emailed: ${sent.reason}` });
   }
   return json({ ok: true });
 }
 
 async function sendMagicEmail(env, email, link) {
-  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return false;
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
+    return { ok: false, reason: 'RESEND_API_KEY or EMAIL_FROM not configured' };
+  }
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -200,7 +199,11 @@ async function sendMagicEmail(env, email, link) {
       text: `Open this link to sign in to your kantan panel (expires in 15 minutes):\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.`,
     }),
   });
-  return res.ok;
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    return { ok: false, reason: `Resend ${res.status}: ${detail.message || res.statusText}` };
+  }
+  return { ok: true };
 }
 
 async function loginCallback(request, env) {
