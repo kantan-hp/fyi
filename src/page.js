@@ -212,6 +212,10 @@ export function appPage({ email, sites, hasSites }) {
            "Create Custom Token"). It is used once to create your site and is never stored here.</p>
         <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
         <button class="btn secondary" id="cf-verify">Verify token</button>
+        <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
+          <label style="font-size:.8rem; color:#555" for="cf-account">Cloudflare account</label>
+          <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
+        </div>
         <div class="status" id="cf-status"></div>
       </section>
 
@@ -239,7 +243,7 @@ export function appPage({ email, sites, hasSites }) {
       };
 
       function refreshCreateButton() {
-        $('create').disabled = !(ghConnected && cfToken && $('site-name').value.trim());
+        $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim());
       }
 
       async function init() {
@@ -271,11 +275,28 @@ export function appPage({ email, sites, hasSites }) {
           return;
         }
         cfToken = token;
-        cfAccountId = data.accounts.length === 1 ? data.accounts[0].id : null;
-        st.className = 'status ok';
-        st.textContent = data.accounts.length === 1
-          ? '✓ Token works — account: ' + data.accounts[0].name
-          : '✓ Token works. Multiple accounts found; the first will be used (POC).';
+        if (data.accounts.length === 1) {
+          cfAccountId = data.accounts[0].id;
+          $('cf-account-picker').classList.add('hidden');
+          st.className = 'status ok';
+          st.textContent = '✓ Token works — account: ' + data.accounts[0].name;
+        } else if (data.accounts.length > 1) {
+          cfAccountId = null;
+          const sel = $('cf-account');
+          sel.innerHTML = data.accounts
+            .map((a) => '<option value="' + a.id + '">' + a.name + '</option>')
+            .join('');
+          sel.onchange = () => { cfAccountId = sel.value; refreshCreateButton(); };
+          $('cf-account-picker').classList.remove('hidden');
+          st.className = 'status ok';
+          st.textContent = '✓ Token works — ' + data.accounts.length +
+            ' accounts found. Select the one to use:';
+        } else {
+          st.className = 'status err';
+          st.textContent = '✗ Token works but cannot see any Cloudflare account. ' +
+            'Check it is scoped to your account with "Cloudflare Pages: Edit".';
+          return;
+        }
         $('step3').classList.add('enabled');
         refreshCreateButton();
       };

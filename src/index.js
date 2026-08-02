@@ -500,8 +500,11 @@ async function provision(request, env) {
     if (!accountId) {
       if (accounts.length !== 1) {
         throw new Error(
-          'Token can see multiple Cloudflare accounts; select one: ' +
-            accounts.map((a) => `${a.name} (${a.id})`).join(', '),
+          accounts.length === 0
+            ? 'Token cannot access any Cloudflare account — check it is scoped to your account.'
+            : `Token can see ${accounts.length} Cloudflare accounts; select one (${accounts
+                .map((a) => `${a.name} (${a.id})`)
+                .join(', ')}) in the wizard and retry.`,
         );
       }
       accountId = accounts[0].id;
