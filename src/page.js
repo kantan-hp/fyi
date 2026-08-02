@@ -207,9 +207,12 @@ export function appPage({ email, sites, hasSites }) {
 
       <section class="card" id="step2">
         <h2><span class="num">2</span> Connect Cloudflare</h2>
-        <p>Paste an API token with the <strong>Cloudflare Pages: Edit</strong> permission
+        <p>Paste an API token with <strong>Cloudflare Pages: Edit</strong> and
+           <strong>Account Settings: Read</strong>
            (<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">create one</a> →
-           "Create Custom Token"). It is used once to create your site and is never stored here.</p>
+           "Create Custom Token" → add both permissions). Account Settings: Read lets us
+           detect your account automatically; the token is used once to create your site
+           and is never stored here.</p>
         <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
         <button class="btn secondary" id="cf-verify">Verify token</button>
         <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
