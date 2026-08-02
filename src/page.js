@@ -357,15 +357,30 @@ export function appPage({ email, sites, hasSites }) {
           li.className = s.ok ? 'ok' : 'err';
           prog.appendChild(li);
         };
-        const r = await fetch('/api/provision', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            siteName: $('site-name').value,
-            cfToken, cfAccountId,
-            public: $('site-public').checked,
-          }),
-        });
-        const data = await r.json();
+        let data;
+        try {
+          const r = await fetch('/api/provision', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              siteName: $('site-name').value,
+              cfToken, cfAccountId,
+              public: $('site-public').checked,
+            }),
+          });
+          data = await r.json();
+        } catch (err) {
+          stopBar();
+          setBar('85%', 'err');
+          const div = document.createElement('div');
+          div.className = 'status err';
+          div.style.marginTop = '.5rem';
+          div.textContent = 'Provisioning failed: ' +
+            ((err && err.message) ? err.message : 'could not reach the server') +
+            '. Your site may be partially created; check GitHub and retry.';
+          $('result').appendChild(div);
+          $('create').disabled = false;
+          return;
+        }
         stopBar();
         (data.steps || []).forEach(addStep);
         if (data.ok) {
