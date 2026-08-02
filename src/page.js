@@ -216,6 +216,15 @@ export function appPage({ email, sites, hasSites }) {
           <label style="font-size:.8rem; color:#555" for="cf-account">Cloudflare account</label>
           <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
         </div>
+        <div id="cf-account-id-field" class="hidden" style="margin:.5rem 0">
+          <label style="font-size:.8rem; color:#555" for="cf-account-id">Cloudflare account ID</label>
+          <input type="text" id="cf-account-id" placeholder="e.g. 685065f0bb97a19eb21d063f9d5efdc6" autocomplete="off" style="margin-top:.25rem" />
+          <p class="muted" style="font-size:.75rem; margin:.3rem 0 0">
+            This token can't list accounts, so enter the account ID it belongs to
+            (dash.cloudflare.com → select the account → it's in the URL), or add
+            <em>Account Settings: Read</em> to the token and re-verify.
+          </p>
+        </div>
         <div class="status" id="cf-status"></div>
       </section>
 
@@ -275,9 +284,10 @@ export function appPage({ email, sites, hasSites }) {
           return;
         }
         cfToken = token;
+        $('cf-account-id-field').classList.add('hidden');
+        $('cf-account-picker').classList.add('hidden');
         if (data.accounts.length === 1) {
           cfAccountId = data.accounts[0].id;
-          $('cf-account-picker').classList.add('hidden');
           st.className = 'status ok';
           st.textContent = '✓ Token works — account: ' + data.accounts[0].name;
         } else if (data.accounts.length > 1) {
@@ -292,10 +302,14 @@ export function appPage({ email, sites, hasSites }) {
           st.textContent = '✓ Token works — ' + data.accounts.length +
             ' accounts found. Select the one to use:';
         } else {
-          st.className = 'status err';
-          st.textContent = '✗ Token works but cannot see any Cloudflare account. ' +
-            'Check it is scoped to your account with "Cloudflare Pages: Edit".';
-          return;
+          cfAccountId = null;
+          const idInput = $('cf-account-id');
+          idInput.value = '';
+          idInput.oninput = () => { cfAccountId = idInput.value.trim() || null; refreshCreateButton(); };
+          $('cf-account-id-field').classList.remove('hidden');
+          st.className = 'status muted';
+          st.textContent = '✓ Token authenticates, but cannot list accounts. ' +
+            'Enter the Cloudflare account ID it belongs to, or add "Account Settings: Read".';
         }
         $('step3').classList.add('enabled');
         refreshCreateButton();

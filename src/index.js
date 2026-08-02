@@ -498,17 +498,18 @@ async function provision(request, env) {
     const accounts = await cf(cfToken, '/accounts?per_page=50');
     let accountId = cfAccountId;
     if (!accountId) {
+      // No explicit account: auto-discover, which needs the token to list accounts.
       if (accounts.length !== 1) {
         throw new Error(
           accounts.length === 0
-            ? 'Token cannot access any Cloudflare account — check it is scoped to your account.'
+            ? 'This token cannot list Cloudflare accounts — enter your account ID in the wizard.'
             : `Token can see ${accounts.length} Cloudflare accounts; select one (${accounts
                 .map((a) => `${a.name} (${a.id})`)
                 .join(', ')}) in the wizard and retry.`,
         );
       }
       accountId = accounts[0].id;
-    } else if (!accounts.some((a) => a.id === accountId)) {
+    } else if (accounts.length > 0 && !accounts.some((a) => a.id === accountId)) {
       throw new Error('The Cloudflare token cannot access the selected account.');
     }
     ok('cloudflare-account', accountId);
