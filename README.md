@@ -85,8 +85,10 @@ emailing it, so the whole flow is testable locally with zero setup.
 
 - Just an email address to sign in.
 - For the wizard: a GitHub account and a Cloudflare account with **one API token**
-  (dash.cloudflare.com → My Profile → API Tokens → Create Custom Token, *Cloudflare
-  Pages: Edit*).
+  (dash.cloudflare.com → My Profile → API Tokens → Create Custom Token) carrying
+  **Cloudflare Pages: Edit** and **Account Settings: Read** — the read permission
+  lets the panel detect the account automatically. Without it, the panel asks for
+  the account ID instead.
 
 ## Known POC limitations
 
