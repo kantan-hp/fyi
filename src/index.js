@@ -598,6 +598,30 @@ async function provision(request, env) {
     });
     ok('decap-configured', 'first deploy triggered');
 
+    // 7b. Set the site title to the site name — the template defaults to "Kantan HP".
+    // Best-effort: cosmetic, so a template layout change never fails provisioning.
+    let titled = false;
+    try {
+      const cfgJson = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
+      const config = JSON.parse(b64decode(cfgJson.content));
+      if (config && config.site) {
+        config.site.title = slug;
+        await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
+          method: 'PUT',
+          body: {
+            message: 'chore: set site title to the site name',
+            content: b64encode(JSON.stringify(config, null, 2) + '\n'),
+            sha: cfgJson.sha,
+            branch: 'main',
+          },
+        });
+        titled = true;
+      }
+    } catch {
+      // ignore — the site is still fully provisioned
+    }
+    ok('site-titled', titled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
+
     // 8. Register the site in D1 (drives the site list and the Decap origin check)
     const origin = `https://${slug}.pages.dev`;
     await env.DB.prepare(
