@@ -113,6 +113,18 @@ function isHttps(request) {
   return new URL(request.url).protocol === 'https:';
 }
 
+// Canonical panel base URL (scheme + host, no trailing slash), always https.
+// Cloudflare enforces http→https at the edge (Always Use HTTPS + HSTS), but
+// GitHub OAuth Apps match the callback URL exactly, so the redirect_uri (and
+// the Decap base_url written into user configs) must be the registered https
+// origin no matter what. Forcing https here keeps that invariant even if a
+// request somehow reaches the worker over http. (Local dev: point PANEL_BASE_URL
+// at your https dev origin, or register a second GitHub App for the http
+// callback.)
+function panelBase(env, request) {
+  return (env.PANEL_BASE_URL || new URL(request.url).origin).replace(/^http:/, 'https:');
+}
+
 // ---------------------------------------------------------------------------
 // Sessions
 
@@ -170,8 +182,9 @@ async function loginIssue(request, env) {
   await env.KV.put(`magic:${code}`, normalized, { expirationTtl: MAGIC_TTL_SECONDS });
 
   // env.PANEL_BASE_URL overrides the request origin for local dev, where wrangler
-  // dev rewrites request.url to the route hostname (kantan-hp.fyi).
-  const base = env.PANEL_BASE_URL || new URL(request.url).origin;
+  // dev rewrites request.url to the route hostname (kantan-hp.fyi). Always https
+  // so magic links keep working even if the panel was opened over http.
+  const base = panelBase(env, request);
   const link = `${base}/login/callback?code=${code}`;
   const sent = await sendMagicEmail(env, normalized, link);
   if (!sent.ok) {
@@ -271,12 +284,15 @@ function wizardLogout(request) {
 
 async function oauthStart(request, env, flow) {
   if (!env.GITHUB_CLIENT_ID) return text('GITHUB_CLIENT_ID is not configured on the worker.', 500);
-  const url = new URL(request.url);
   const nonce = crypto.randomUUID();
   const state = await signPayload(env.SESSION_SECRET, { flow, nonce });
   const redirectUrl = new URL('https://github.com/login/oauth/authorize');
   redirectUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
-  redirectUrl.searchParams.set('redirect_uri', url.origin + '/oauth/callback');
+  // GitHub OAuth Apps match the callback URL exactly, so the redirect_uri must
+  // always be the canonical HTTPS callback — never the request's own scheme or
+  // host (Cloudflare serves http://kantan-hp.fyi without upgrading, and any
+  // workers.dev/preview origin is not registered).
+  redirectUrl.searchParams.set('redirect_uri', panelBase(env, request) + '/oauth/callback');
   redirectUrl.searchParams.set('scope', 'repo');
   redirectUrl.searchParams.set('state', state);
   return new Response(null, {
@@ -492,7 +508,7 @@ async function provision(request, env) {
     const ghT = wizard.t;
     const login = wizard.login;
     const email = session.sub;
-    const panelOrigin = new URL(request.url).origin;
+    const panelOrigin = panelBase(env, request);
 
     // 1. Cloudflare account (auto-discovered from the token)
     const accounts = await cf(cfToken, '/accounts?per_page=50');
