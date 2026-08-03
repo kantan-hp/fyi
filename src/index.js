@@ -4,9 +4,12 @@
 //   2. Routes /app to a setup wizard (no sites yet) or a site table.
 //   3. Provisions a kantan-hp site: generates a repo from the template, writes
 //      Cloudflare deploy secrets into the user's own repo, creates a direct-upload
-//      Pages project, and points Decap at this worker's shared auth proxy.
-//   4. Hosts the shared Decap OAuth proxy (/api/decap/auth → /oauth/callback) so
-//      end users never create a GitHub OAuth App.
+//      Pages project, and points the site editor (Sveltia CMS) at this worker's
+//      shared auth proxy.
+//   4. Hosts the shared editor OAuth proxy (/api/decap/auth → /oauth/callback) so
+//      end users never create a GitHub OAuth App. The /api/decap/* route names are
+//      legacy-stable (they predate the Sveltia switch and renaming them would
+//      require rewriting auth_endpoint in every provisioned site's config.yml).
 //
 // Storage:
 //   - D1 (DB): the site registry, scoped by owner email (strongly consistent).
@@ -67,7 +70,7 @@ export default {
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request);
       if (pathname === '/api/provision' && method === 'POST') return provision(request, env);
 
-      // OAuth — wizard GitHub connect + Decap shared proxy (single callback URL)
+      // OAuth — wizard GitHub connect + shared editor proxy (single callback URL)
       if (pathname === '/auth/github') return oauthStart(request, env, 'wizard');
       if (pathname === '/api/decap/auth') return oauthStart(request, env, 'decap');
       if (pathname === '/oauth/callback') return oauthCallback(request, env);
@@ -116,7 +119,7 @@ function isHttps(request) {
 // Canonical panel base URL (scheme + host, no trailing slash), always https.
 // Cloudflare enforces http→https at the edge (Always Use HTTPS + HSTS), but
 // GitHub OAuth Apps match the callback URL exactly, so the redirect_uri (and
-// the Decap base_url written into user configs) must be the registered https
+// the editor base_url written into user configs) must be the registered https
 // origin no matter what. Forcing https here keeps that invariant even if a
 // request somehow reaches the worker over http. (Local dev: point PANEL_BASE_URL
 // at your https dev origin, or register a second GitHub App for the http
@@ -351,7 +354,7 @@ async function oauthCallback(request, env) {
     return new Response(null, { status: 302, headers });
   }
 
-  // Decap flow: hand the token to the Decap window via postMessage, but only
+  // Editor flow: hand the token to the editor window via postMessage, but only
   // after the opener's origin has been validated (registered in D1 *and* the
   // token has push access to that site's repo — checked client-side against
   // the GitHub API with the user's own token).
@@ -401,7 +404,10 @@ function renderDecapHandshake(content) {
         }
         finish('success', { token: PAYLOAD.token, provider: 'github' }, origin);
       } catch (err) {
-        finish('error', { message: String((err && err.message) || err) }, origin);
+        // Sveltia reads `error` (Decap reads `message`) — send both so the
+        // editor shows the real reason on OAuth/D1/push-check failures.
+        const reason = String((err && err.message) || err);
+        finish('error', { message: reason, error: reason }, origin);
       }
     };
     window.addEventListener('message', receive, false);
@@ -476,7 +482,7 @@ async function cfAccounts(request) {
 }
 
 // ---------------------------------------------------------------------------
-// Public, secret-free lookup used by the Decap handshake page: does this
+// Public, secret-free lookup used by the editor handshake page: does this
 // origin belong to a provisioned site, and which repo backs it?
 
 async function decapLookup(request, env) {
@@ -592,7 +598,7 @@ async function provision(request, env) {
     });
     ok('pages-project-created', `https://${slug}.pages.dev`);
 
-    // 7. Point Decap at this repo + the panel's shared auth proxy.
+    // 7. Point the editor at this repo + the panel's shared auth proxy.
     //    This commit is also the first push, which triggers the deploy.
     const current = b64decode(cfg.content);
     let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
@@ -606,7 +612,7 @@ async function provision(request, env) {
     await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
       method: 'PUT',
       body: {
-        message: 'chore: point Decap at this repo and the shared auth proxy',
+        message: 'chore: point the editor at this repo and the shared auth proxy',
         content: b64encode(updated),
         sha: cfg.sha,
         branch: 'main',
@@ -614,7 +620,7 @@ async function provision(request, env) {
     });
     ok('decap-configured', 'first deploy triggered');
 
-    // 8. Register the site in D1 (drives the site list and the Decap origin check)
+    // 8. Register the site in D1 (drives the site list and the editor origin check)
     const origin = `https://${slug}.pages.dev`;
     await env.DB.prepare(
       'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
