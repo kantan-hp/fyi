@@ -404,7 +404,7 @@ function renderDecapHandshake(content) {
         }
         finish('success', { token: PAYLOAD.token, provider: 'github' }, origin);
       } catch (err) {
-        // Sveltia reads `error` (Decap reads `message`) — send both so the
+        // Sveltia reads 'error' (Decap read 'message') - send both so the
         // editor shows the real reason on OAuth/D1/push-check failures.
         const reason = String((err && err.message) || err);
         finish('error', { message: reason, error: reason }, origin);
