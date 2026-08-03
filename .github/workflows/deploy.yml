@@ -1,0 +1,45 @@
+# Deploy the kantan panel worker to Cloudflare.
+#
+# The panel has no Git↔Cloudflare connection; the worker is published with
+# `wrangler deploy`. Every push to main — a merged feature PR — redeploys.
+# Worker secrets (SESSION_SECRET, GITHUB_CLIENT_ID/SECRET, RESEND_API_KEY,
+# EMAIL_FROM) live on Cloudflare already and persist across deploys; this
+# workflow only supplies the deploy-time operator token.
+#
+# Repo secrets required: CLOUDFLARE_API_TOKEN (Workers + D1 + KV edit),
+# CLOUDFLARE_ACCOUNT_ID.
+
+name: Deploy worker
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
