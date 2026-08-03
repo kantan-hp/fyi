@@ -75,7 +75,14 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
    npx wrangler secret put RESEND_API_KEY    # free tier is fine
    npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi
    ```
-5. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
+5. **Enforce https on the zone** (dash.cloudflare.com → kantan-hp.fyi → SSL/TLS):
+   - Edge Certificates → **Always Use HTTPS** → On (301 http→https at the edge).
+   - Edge Certificates → **Automatic HTTPS Rewrites** → On.
+   - Edge Certificates → **HSTS** → On, Max Age `31536000`, Include Subdomains On.
+   - This matters because GitHub OAuth callback URLs are registered for `https://`
+     only, and mobile browsers won't auto-upgrade a plain-http request — the
+     worker's `redirect_uri` is derived from the request origin.
+6. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
 
 For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run dev`.
 Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
