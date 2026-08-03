@@ -1,11 +1,13 @@
 name: Code Review
 
-# On-demand OpenCodeReview (OCR) for a PRIVATE repo. Triggered only by an
-# /open-code-review (or @open-code-review) comment from a collaborator, so there
-# is no per-PR Actions cost. The reusable workflow in kantan-hp/.github handles
-# the trusted-commenter and same-repo gates and posts the review. Requires the
-# repo secret OCR_LLM_AUTH_TOKEN (OpenCode Go API key).
+# Reviews every pull request with the kantan-hp reusable OpenCodeReview (OCR)
+# workflow (alibaba/open-code-review, OSS) against the OpenCode Go plan
+# (deepseek-v4-flash). Runs automatically on all PRs (private and public); the
+# reusable workflow in kantan-hp/.github handles the same-repo gate and posts the
+# review. Requires the repo secret OCR_LLM_AUTH_TOKEN (OpenCode Go API key).
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
 
