@@ -761,6 +761,7 @@ async function siteVersionStatus(env, token, site) {
 
   // Site core tree at its HEAD + the template trees we compare against.
   const siteInfo = await siteRepoInfo(token, site.repo);
+  result.siteHeadSha = siteInfo.headSha;
   const [siteTree, tplFromTree, tplToTree] = await Promise.all([
     repoTree(token, siteInfo.owner, siteInfo.name, siteInfo.headSha),
     repoTree(token, tplOwner, tplName, recorded),
@@ -855,15 +856,27 @@ async function siteUpdate(request, env) {
     const from = status.from;
     const to = status.to;
 
+    // The fitness gate and change list were computed against status.siteHeadSha.
+    // If the site's branch moved since that read, re-run the whole check rather
+    // than committing blind — otherwise a concurrent push to a core file would
+    // be silently overwritten (bypassing the dirty gate).
+    if (siteInfo.headSha !== status.siteHeadSha) {
+      return json({
+        error: 'Your site changed while reviewing — re-check and try again.',
+        retry: true,
+      }, 409);
+    }
+    const headSha = status.siteHeadSha;
+
     // Build a single version-bump commit on the site's own default branch.
-    const headCommit = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/commits/${siteInfo.headSha}`);
+    const headCommit = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/commits/${headSha}`);
     const baseTree = headCommit.tree.sha;
     const tplToTree = await repoTree(wizard.t, tplOwner, tplName, to);
     const toBlobMap = {};
     for (const e of tplToTree) toBlobMap[e.path] = e;
 
     const [siteCfgB64, toCfgB64] = await Promise.all([
-      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
+      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, headSha),
       fileContentBase64(wizard.t, tplOwner, tplName, CONFIG_YML_PATH, to),
     ]);
     const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
@@ -899,9 +912,12 @@ async function siteUpdate(request, env) {
       body: {
         message: `chore: update site core to template ${to.slice(0, 7)}`,
         tree: newTree.sha,
-        parents: [siteInfo.headSha],
+        parents: [headSha],
       },
     });
+    // force:false makes this a compare-and-swap: GitHub rejects the ref update
+    // unless it fast-forwards from the current head, so a push that landed
+    // between our head read and this update cannot be silently overwritten.
     await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/refs/heads/${siteInfo.defaultBranch}`, {
       method: 'PATCH',
       body: { sha: commit.sha, force: false },

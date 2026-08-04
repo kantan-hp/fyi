@@ -481,16 +481,35 @@ export function appPage({ email, sites, hasSites }) {
         return false;
       };
 
+      const errorModal = (msg) => {
+        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+      };
+
+      // Shared POST helper: never leaves the modal stuck. Handles the connect
+      // prompt (401), server errors (non-2xx / error body) and network failures.
+      const apiPost = async (path, body) => {
+        let r;
+        try {
+          r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        } catch (err) {
+          errorModal('Could not reach the panel: ' + ((err && err.message) || err) + '. Try again.');
+          return null;
+        }
+        if (await handleUnauth(r)) return null;
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && !data.blocked) {
+          errorModal(data.error || ('Request failed (' + r.status + ').'));
+          return null;
+        }
+        return data;
+      };
+
       document.querySelectorAll('[data-update]').forEach((btn) => {
         btn.onclick = async () => {
           const origin = btn.dataset.update;
           openModal('Checking…', '<p class="muted">Comparing your site against the template…</p>', '');
-          const r = await fetch('/api/sites/check', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ origin }),
-          });
-          if (await handleUnauth(r)) return;
-          const data = await r.json().catch(() => ({}));
+          const data = await apiPost('/api/sites/check', { origin });
+          if (!data) return;
           if (data.upToDate) {
             openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
             btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
@@ -531,12 +550,8 @@ export function appPage({ email, sites, hasSites }) {
         btn.onclick = async () => {
           const origin = btn.dataset.baseline;
           openModal('Checking…', '<p class="muted">Verifying your site matches the current template…</p>', '');
-          const r = await fetch('/api/sites/check', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ origin }),
-          });
-          if (await handleUnauth(r)) return;
-          const data = await r.json().catch(() => ({}));
+          const data = await apiPost('/api/sites/check', { origin });
+          if (!data) return;
           if (data.needsBaseline) {
             openModal('Baseline needed', '<p>Set the current template as your baseline. This is only accepted if your site\'s core still matches the template (otherwise a drift report is shown instead).</p>', '<button class="btn" id="baseline-go2" data-origin="' + esc(origin) + '">Set baseline</button> <button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Cancel</button>');
             $('baseline-go2').onclick = () => doBaseline(origin, btn);
@@ -554,12 +569,8 @@ export function appPage({ email, sites, hasSites }) {
       });
 
       async function doBaseline(origin, btn) {
-        const r = await fetch('/api/sites/baseline', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ origin }),
-        });
-        if (await handleUnauth(r)) return;
-        const data = await r.json().catch(() => ({}));
+        const data = await apiPost('/api/sites/baseline', { origin });
+        if (!data) return;
         if (data.ok) {
           openModal('Baseline set', '<p>Your site is now tracked at template <code>' + shortSha(data.templateVersion) + '</code>.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
           btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
@@ -570,12 +581,8 @@ export function appPage({ email, sites, hasSites }) {
 
       async function doUpdate(origin, btn, major) {
         openModal('Updating…', '<p class="muted">Applying the update and rebuilding your site. This takes a minute or two.</p>', '');
-        const r = await fetch('/api/sites/update', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ origin, confirmMajor: !!major }),
-        });
-        if (await handleUnauth(r)) return;
-        const data = await r.json().catch(() => ({}));
+        const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
+        if (!data) return;
         if (data.ok) {
           openModal('Update complete', '<p>Your site is updated to template <code>' + shortSha(data.to) + '</code> (' + data.changed + ' file(s) changed). The deploy has been triggered — it takes a minute or two to go live.</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">View the build</a></p>', '<button class="btn" onclick="location.href=\'/app\'">Done</button>');
           if (btn) btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
