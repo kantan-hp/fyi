@@ -263,7 +263,6 @@ export function appPage({ email, sites, hasSites }) {
       if (newSite) newSite.onclick = () => {
         const nowHidden = wizard.classList.toggle('hidden');
         newSite.classList.toggle('secondary', nowHidden);
-        if (!nowHidden) wizard.scrollIntoView({ behavior: 'smooth' });
       };
 
       function refreshCreateButton() {
