@@ -246,7 +246,7 @@ export function appPage({ email, sites, hasSites }) {
         <p>Your site lives in a new repository in your GitHub account. We ask for
            <code>repo</code> access so we can create it and set it up for you.</p>
         <div id="gh-logged-out">
-          <button class="btn" onclick="location.href='/auth/github'">Connect GitHub</button>
+          <button class="btn" onclick="localStorage.setItem('kantan-wizard-open','1'); location.href='/auth/github'">Connect GitHub</button>
         </div>
         <div id="gh-logged-in" class="hidden">
           <div class="status ok">✓ Connected as <strong id="gh-login"></strong>
@@ -605,6 +605,18 @@ export function appPage({ email, sites, hasSites }) {
           if (btn) btn.classList.add('active');
         }
         runCheck(pending, { fromReturn: true });
+      })();
+
+      // Return-to-wizard: the wizard's Connect GitHub button stores this flag
+      // before navigating; on return /app otherwise re-hides the wizard (because
+      // the user has sites). Reopen it so the three steps stay visible.
+      (function returnToWizard() {
+        if (!localStorage.getItem('kantan-wizard-open')) return;
+        localStorage.removeItem('kantan-wizard-open');
+        if (wizard && wizard.classList.contains('hidden')) {
+          wizard.classList.remove('hidden');
+          if (newSite) newSite.classList.add('active');
+        }
       })();
 
       // If the page is restored from the back/forward cache (refresh/back while
