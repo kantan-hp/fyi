@@ -113,3 +113,171 @@ export function randomHex(bytes = 16) {
   for (const b of buf) out += b.toString(16).padStart(2, '0');
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Site versioning — the user data contract, the fitness gate, and the update
+// diff. Pure so they can be unit-tested without the GitHub API.
+//
+// The user data contract (never overwritten by an update):
+//   - src/content/**        (posts + pages, Markdown)
+//   - public/images/**      (uploaded media)
+//   - src/config.json       (site settings)
+// Everything else is core and versioned per site via sites.template_version.
+
+/** True for paths owned entirely by the user (never touched by an update). */
+export function isUserDataPath(path) {
+  return (
+    path === 'src/config.json' ||
+    path.startsWith('src/content/') ||
+    path.startsWith('public/images/')
+  );
+}
+
+/** True for the site-specific editor config, whose backend lines are re-injected. */
+export const CONFIG_YML_PATH = 'public/admin/config.yml';
+
+/** Strip site-specific backend lines so a site's config.yml can be compared to the template's. */
+export function normalizeConfigYml(content) {
+  return String(content || '')
+    .split('\n')
+    .filter((line) => !/^\s*(repo|base_url|auth_endpoint):/.test(line))
+    .join('\n');
+}
+
+/** Turn a GitHub tree (array of {path, type, sha, mode}) into {path: sha} for blobs. */
+export function treeToBlobMap(tree) {
+  const map = {};
+  for (const entry of tree || []) {
+    if (entry.type === 'blob') map[entry.path] = entry.sha;
+  }
+  return map;
+}
+
+/**
+ * Classify a site as clean or dirty relative to template@recordedVersion.
+ * Clean = every core file byte-matches the template (blob SHA equality is a
+ * content hash, so no history or content fetch is needed). Pure *additions* are
+ * tolerated; modifications or deletions of core files mark the site dirty.
+ * config.yml is compared modulo its site-specific backend lines.
+ */
+export function classifyFitness({ templateTree, siteTree, templateConfigYml, siteConfigYml }) {
+  const tpl = treeToBlobMap(templateTree);
+  const site = treeToBlobMap(siteTree);
+  const drifted = [];
+  for (const [path, sha] of Object.entries(tpl)) {
+    if (isUserDataPath(path) || path === CONFIG_YML_PATH) continue;
+    if (!(path in site)) {
+      drifted.push({ path, kind: 'deleted' });
+    } else if (site[path] !== sha) {
+      drifted.push({ path, kind: 'modified' });
+    }
+  }
+  if (normalizeConfigYml(templateConfigYml) !== normalizeConfigYml(siteConfigYml)) {
+    drifted.push({ path: CONFIG_YML_PATH, kind: 'modified' });
+  }
+  return { clean: drifted.length === 0, drifted };
+}
+
+/**
+ * The core-path diff between two template trees (from → to), for the update
+ * engine. User data is never included. config.yml is included as modified when
+ * its non-backend content changed.
+ */
+export function diffCoreTrees({ fromTree, toTree, fromConfigYml, toConfigYml }) {
+  const from = treeToBlobMap(fromTree);
+  const to = treeToBlobMap(toTree);
+  const changes = [];
+  const allPaths = new Set([...Object.keys(from), ...Object.keys(to)]);
+  for (const path of allPaths) {
+    if (isUserDataPath(path) || path === CONFIG_YML_PATH) continue;
+    const fromSha = from[path];
+    const toSha = to[path];
+    if (fromSha && !toSha) changes.push({ path, status: 'deleted' });
+    else if (!fromSha && toSha) changes.push({ path, status: 'added' });
+    else if (fromSha !== toSha) changes.push({ path, status: 'modified' });
+  }
+  if (normalizeConfigYml(fromConfigYml) !== normalizeConfigYml(toConfigYml)) {
+    changes.push({ path: CONFIG_YML_PATH, status: 'modified' });
+  }
+  return changes;
+}
+
+/** Take template@N+1 config.yml and re-inject the site's own backend lines. */
+export function reinjectConfigBackend(templateConfigYml, siteConfigYml) {
+  const grab = (cfg, key) => {
+    const m = String(cfg || '').match(new RegExp(`^[ \\t]*${key}:\\s*(.+?)\\s*$`, 'm'));
+    return m ? m[1] : null;
+  };
+  const repo = grab(siteConfigYml, 'repo');
+  const baseUrl = grab(siteConfigYml, 'base_url');
+  const authEndpoint = grab(siteConfigYml, 'auth_endpoint');
+  let out = String(templateConfigYml || '');
+
+  // Replace an existing line, or insert it after `anchor` (kept otherwise).
+  const setOrInsert = (content, key, value, anchor) => {
+    const re = new RegExp(`^([ \\t]*)${key}:.*$`, 'm');
+    if (re.test(content)) return content.replace(re, `$1${key}: ${value}`);
+    const anchorRe = new RegExp(`^([ \\t]*)${anchor}:.*$`, 'm');
+    const m = content.match(anchorRe);
+    if (m) {
+      const indent = m[1];
+      return content.replace(anchorRe, (line) => `${line}\n${indent}${key}: ${value}`);
+    }
+    return content;
+  };
+
+  if (repo) out = setOrInsert(out, 'repo', repo, 'name');
+  if (baseUrl) out = setOrInsert(out, 'base_url', baseUrl, 'branch');
+  // Ensure auth_endpoint is present whenever the site had base_url (a shared
+  // proxy site needs both; the template may carry base_url without the
+  // auth_endpoint line).
+  if (authEndpoint) out = setOrInsert(out, 'auth_endpoint', authEndpoint, 'base_url');
+  return out;
+}
+
+// Matches the major in a bare version or a common semver range/comparator
+// (^7.1.6, ~7.0.0, >=7.0.0, v2.0, 7.x …). Grabbing the first digit sequence
+// after any comparator prefix is enough for major-bump detection.
+const MAJOR_RE = /(?:^|[^\d.])v?(\d+)/;
+
+/** The major of a semver string or range, or null. */
+export function majorOf(version) {
+  const m = MAJOR_RE.exec(String(version || ''));
+  return m ? Number(m[1]) : null;
+}
+
+/** The astro dependency major from a package.json blob. */
+export function astroMajorOf(packageJson) {
+  try {
+    const pkg = JSON.parse(packageJson || '{}');
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    return majorOf(deps.astro ?? deps['@astrojs/check']);
+  } catch {
+    return null;
+  }
+}
+
+/** The Sveltia CMS major from public/admin/index.html (@sveltia/cms@X.Y.Z). */
+export function sveltiaMajorOf(adminHtml) {
+  const m = /@sveltia\/cms@(\d+)/.exec(String(adminHtml || ''));
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Detect major bumps between two template revisions. Returns the set of changed
+ * majors so the panel can require an explicit user confirm even on clean sites.
+ */
+export function detectMajorBumps({ fromPackageJson, toPackageJson, fromAdminHtml, toAdminHtml }) {
+  const bumps = [];
+  const astroFrom = astroMajorOf(fromPackageJson);
+  const astroTo = astroMajorOf(toPackageJson);
+  if (astroFrom != null && astroTo != null && astroFrom !== astroTo) {
+    bumps.push(`Astro ${astroFrom} → ${astroTo}`);
+  }
+  const sveltiaFrom = sveltiaMajorOf(fromAdminHtml);
+  const sveltiaTo = sveltiaMajorOf(toAdminHtml);
+  if (sveltiaFrom != null && sveltiaTo != null && sveltiaFrom !== sveltiaTo) {
+    bumps.push(`Sveltia CMS ${sveltiaFrom} → ${sveltiaTo}`);
+  }
+  return bumps;
+}

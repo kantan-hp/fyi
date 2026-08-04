@@ -97,6 +97,31 @@ emailing it, so the whole flow is testable locally with zero setup.
   lets the panel detect the account automatically. Without it, the panel asks for
   the account ID instead.
 
+## Versioned, fitness-gated updates
+
+Every provisioned site is stamped with the `template_version` (the template `main`
+SHA) it was generated from. The panel uses this anchor for a safe update path
+(`2026-08-04-kantan-site-versioning-and-updates.md`):
+
+- **Badge → check → update**: the site table shows **Up to date / Update available /
+  Baseline needed**; a per-site action runs `/api/sites/check`, shows the file-level
+  diff and any major bumps, then `/api/sites/update` applies it.
+- **Fitness gate**: the site's core tree is compared (by blob SHA) to
+  `template@recorded_version`. Modified or deleted core files make the site **dirty**
+  and block updates with a drift report — no changes are made. Pure additions and all
+  user data (`src/content/**`, `public/images/**`, `src/config.json`) are preserved.
+- **Only green templates offered**: `/api/sites/update` refuses unless the template's
+  own CI (`ci.yml`) is green on main, and major bumps (Astro/Sveltia) require an
+  explicit confirm.
+- **Zero-knowledge preserved**: all site-repo reads/writes use the short-lived wizard
+  token from the same "Connect GitHub" handshake; the update runs on the site's own
+  default branch and its existing `deploy.yml` rebuilds.
+- **Baseline**: sites created before versioning (no `template_version`) get a
+  "Baseline needed" badge; a baseline is only accepted when the core still matches the
+  current template, so nothing is silently assumed clean.
+
+Migration is applied with `npx wrangler d1 migrations apply kantan-panel-db --remote`.
+
 ## Known POC limitations
 
 - Provisioning is one-shot; if it fails midway (e.g. name taken), clean up the

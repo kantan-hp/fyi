@@ -1,0 +1,22 @@
+name: Security
+
+# Delegates to the kantan-hp reusable security backstop so the scanner policy
+# (gitleaks config trust, pinned images) lives in one hardened place rather than
+# being copied into every repo. This repo is a JS/TS Cloudflare Worker (app
+# logic), so gitleaks (secret scan) + semgrep (JS/TS SAST) + actionlint
+# (workflow lint) all apply — matching the org plan that every kantan repo runs
+# the reusable security workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  security:
+    permissions:
+      contents: read
+    uses: kantan-hp/.github/.github/workflows/security.yml@main
+    with:
+      gitleaks: true
+      semgrep: true
+      actionlint: true
