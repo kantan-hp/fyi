@@ -142,6 +142,16 @@ test('reinjectConfigBackend: no base_url in site -> nothing injected', () => {
   assert.doesNotMatch(out, /base_url:/);
 });
 
+test('reinjectConfigBackend: template has base_url but no auth_endpoint -> auth_endpoint re-inserted', () => {
+  // Template@N+1 ships a base_url line but no auth_endpoint; the site's
+  // auth_endpoint (shared proxy) must survive the re-injection.
+  const site = 'backend:\n  name: github\n  repo: alice/blog\n  branch: main\n  base_url: https://kantan-hp.fyi\n  auth_endpoint: /api/decap/auth\n';
+  const newTpl = 'backend:\n  name: github\n  repo: kantan-hp/template\n  branch: main\n  base_url: https://new.template\n';
+  const out = reinjectConfigBackend(newTpl, site);
+  assert.match(out, /base_url: https:\/\/kantan-hp\.fyi/);
+  assert.match(out, /auth_endpoint: \/api\/decap\/auth/);
+});
+
 test('majorOf / astroMajorOf / sveltiaMajorOf', () => {
   assert.equal(majorOf('7.1.6'), 7);
   assert.equal(majorOf('v2.0'), 2);

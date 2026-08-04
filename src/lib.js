@@ -212,26 +212,26 @@ export function reinjectConfigBackend(templateConfigYml, siteConfigYml) {
   const baseUrl = grab(siteConfigYml, 'base_url');
   const authEndpoint = grab(siteConfigYml, 'auth_endpoint');
   let out = String(templateConfigYml || '');
-  const setLine = (content, key, value) => {
+
+  // Replace an existing line, or insert it after `anchor` (kept otherwise).
+  const setOrInsert = (content, key, value, anchor) => {
     const re = new RegExp(`^([ \\t]*)${key}:.*$`, 'm');
-    return re.test(content) ? content.replace(re, `$1${key}: ${value}`) : content;
-  };
-  if (repo) out = setLine(out, 'repo', repo);
-  if (baseUrl) {
-    if (!/^[ \t]*base_url:/m.test(out)) {
-      // Insert after the branch: line, mirroring the provisioner's injection.
-      const branchRe = /^([ \t]*)branch:.*$/m;
-      const branchMatch = out.match(branchRe);
-      if (branchMatch) {
-        const indent = branchMatch[1];
-        const inject = `\n${indent}base_url: ${baseUrl}${authEndpoint ? `\n${indent}auth_endpoint: ${authEndpoint}` : ''}`;
-        out = out.replace(branchRe, (line) => line + inject);
-      }
-    } else {
-      out = setLine(out, 'base_url', baseUrl);
-      if (authEndpoint) out = setLine(out, 'auth_endpoint', authEndpoint);
+    if (re.test(content)) return content.replace(re, `$1${key}: ${value}`);
+    const anchorRe = new RegExp(`^([ \\t]*)${anchor}:.*$`, 'm');
+    const m = content.match(anchorRe);
+    if (m) {
+      const indent = m[1];
+      return content.replace(anchorRe, (line) => `${line}\n${indent}${key}: ${value}`);
     }
-  }
+    return content;
+  };
+
+  if (repo) out = setOrInsert(out, 'repo', repo, 'name');
+  if (baseUrl) out = setOrInsert(out, 'base_url', baseUrl, 'branch');
+  // Ensure auth_endpoint is present whenever the site had base_url (a shared
+  // proxy site needs both; the template may carry base_url without the
+  // auth_endpoint line).
+  if (authEndpoint) out = setOrInsert(out, 'auth_endpoint', authEndpoint, 'base_url');
   return out;
 }
 

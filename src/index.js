@@ -915,17 +915,27 @@ async function siteUpdate(request, env) {
         parents: [headSha],
       },
     });
-    // force:false makes this a compare-and-swap: GitHub rejects the ref update
-    // unless it fast-forwards from the current head, so a push that landed
-    // between our head read and this update cannot be silently overwritten.
-    await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/refs/heads/${siteInfo.defaultBranch}`, {
-      method: 'PATCH',
-      body: { sha: commit.sha, force: false },
-    });
+    const setAnchor = (value) =>
+      env.DB.prepare('UPDATE sites SET template_version = ? WHERE origin = ?').bind(value, origin).run();
 
-    // The core now matches template@to; advance the panel-owned anchor. The site's
-    // deploy.yml rebuilds + redeploys from this push.
-    await env.DB.prepare('UPDATE sites SET template_version = ? WHERE origin = ?').bind(to, origin).run();
+    // Reserve the anchor BEFORE touching the branch: if the D1 write fails, no
+    // commit is made and nothing diverges. If the ref update then fails, we
+    // compensate by reverting the anchor — the repo never ends up ahead of the
+    // recorded version (which would otherwise leave the site looking dirty and
+    // permanently blocked).
+    await setAnchor(to);
+    try {
+      // force:false makes this a compare-and-swap: GitHub rejects the ref update
+      // unless it fast-forwards from the current head, so a push that landed
+      // between our head read and this update cannot be silently overwritten.
+      await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/refs/heads/${siteInfo.defaultBranch}`, {
+        method: 'PATCH',
+        body: { sha: commit.sha, force: false },
+      });
+    } catch (err) {
+      await setAnchor(from).catch(() => {});
+      throw err;
+    }
 
     return json({
       ok: true,
