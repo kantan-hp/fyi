@@ -44,9 +44,9 @@ ul.steps { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .85rem; 
 ul.steps li { padding: .15rem 0; }
 table.sites { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .92rem; }
 table.sites th, table.sites td { text-align: left; padding: .6rem .4rem; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
-table.sites th:first-child, table.sites td:first-child { width: 60%; }
-table.sites th:nth-child(2), table.sites td:nth-child(2) { width: 9rem; }
-table.sites th:last-child, table.sites td:last-child { width: 10rem; }
+table.sites th:first-child, table.sites td:first-child { width: auto; }
+table.sites th:nth-child(2), table.sites td:nth-child(2) { width: 8rem; }
+table.sites th:last-child, table.sites td:last-child { width: 8rem; }
 table.sites th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #999; }
 .result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 10px; font-size: .85rem; }
 .pbar { height: 8px; background: #eee; border-radius: 999px; overflow: hidden; margin: .75rem 0 .25rem; display: none; }
