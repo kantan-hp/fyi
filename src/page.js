@@ -294,6 +294,7 @@ export function appPage({ email, sites, hasSites }) {
           <input type="checkbox" id="site-branded" checked /> Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
           <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
         </label>
+        <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
         <button class="btn" id="create" disabled>Create my website</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
@@ -385,7 +386,22 @@ export function appPage({ email, sites, hasSites }) {
         refreshCreateButton();
       };
 
-      $('site-name').oninput = refreshCreateButton;
+      $('site-name').oninput = () => {
+        refreshCreateButton();
+        // Short names can't carry a branded address; fall back to pages.dev
+        // only instead of failing the default (checked) path on the server.
+        const branded = $('site-branded');
+        const name = $('site-name').value.trim();
+        const hint = $('branded-fallback-hint');
+        if (branded.checked && name.length > 0 && name.length < 4) {
+          branded.checked = false;
+          hint.textContent = 'Too short for a branded address — using pages.dev only.';
+          hint.classList.remove('hidden');
+        } else {
+          hint.classList.add('hidden');
+        }
+      };
+      $('site-branded').onchange = () => $('branded-fallback-hint').classList.add('hidden');
 
       // Progress bar: simulated advance while the single provisioning POST runs
       // (there is no per-step streaming yet), then snap to 100% (ok) or 85% (err).

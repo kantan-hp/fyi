@@ -809,12 +809,16 @@ async function provision(request, env) {
         } catch {
           // the deploy is not blocked by the domain lifecycle; report pending
         }
-        ok(
-          'branded-domain',
-          domainStatus === 'active'
-            ? `https://${slug}.kantan-hp.fyi active`
-            : `https://${slug}.kantan-hp.fyi pending — activates once Cloudflare validates the DNS records`,
-        );
+        if (domainStatus === 'active') {
+          ok('branded-domain', `https://${slug}.kantan-hp.fyi active`);
+        } else if (domainStatus === 'error' || domainStatus === 'blocked' || domainStatus === 'deactivated') {
+          // A permanent validation failure (e.g. the TXT/CNAME never validates)
+          // must not be reported as an eventual success — surface it as a failed
+          // step; the site itself still serves at pages.dev.
+          fail('branded-domain', `https://${slug}.kantan-hp.fyi could not be validated (${domainStatus}) — the site still works at ${pagesDevUrl}`);
+        } else {
+          ok('branded-domain', `https://${slug}.kantan-hp.fyi pending — activates once Cloudflare validates the DNS records`);
+        }
       }
 
       // 8c. Set the site title to the site name — the template defaults to "Kantan HP".
