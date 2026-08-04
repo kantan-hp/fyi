@@ -470,7 +470,7 @@ export function appPage({ email, sites, hasSites }) {
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
       const errorModal = (msg) => {
-        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
       };
 
       const apiPost = async (path, body) => {
@@ -585,13 +585,13 @@ export function appPage({ email, sites, hasSites }) {
           return;
         }
         if (data.upgradeable === 'no') {
-          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
           renderCheck(origin, data);
           return;
         }
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || 'This site cannot be updated right now.';
-          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
           renderCheck(origin, data);
           return;
         }
@@ -606,7 +606,7 @@ export function appPage({ email, sites, hasSites }) {
           '<ul class="changes">' + (list || '<li>no core file changes</li>') + '</ul>' + extra + gates;
         openModal('Update available', body,
           '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">Update to ' + shortSha(data.to) + '</button>' +
-          '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
         $('update-go').onclick = () => doUpdate(origin, data.majorBumps && data.majorBumps.length > 0);
       }
 
@@ -615,14 +615,14 @@ export function appPage({ email, sites, hasSites }) {
         const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
         if (!data) return;
         if (data.ok) {
-          openModal('Update complete', '<p>Your site is updated to template <code>' + shortSha(data.to) + '</code> (' + data.changed + ' file(s) changed). The deploy has been triggered — it takes a minute or two to go live.</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">View the build</a></p>', '<button class="btn" onclick="location.href=\'/app\'">Done</button>');
+          openModal('Update complete', '<p>Your site is updated to template <code>' + shortSha(data.to) + '</code> (' + data.changed + ' file(s) changed). The deploy has been triggered — it takes a minute or two to go live.</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">View the build</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">Done</button>');
           renderCheck(origin, { upgradeable: 'no' });
         } else {
           let body = '<p class="err">' + esc(data.error || 'Update failed.') + '</p>';
           if (data.blocked === 'major') body = '<p>This update bumps a major version (<code>' + esc((data.majorBumps || []).join(', ')) + '</code>). It can change the look or break customizations.</p><p class="err">Confirm to continue, or cancel.</p>';
           openModal('Update failed', body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\'' + esc(origin) + '\', true)">Confirm &amp; update anyway</button>'
-            : '') + '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+            ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">Confirm &amp; update anyway</button>'
+            : '') + '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
         }
       }
     </script>`,
