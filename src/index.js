@@ -39,6 +39,7 @@ import {
   detectMajorBumps,
   upgradeState,
   canonicalOrigin,
+  isBrandSlug,
   isReservedSlug,
   slugLengthOk,
 } from './lib.js';
@@ -194,15 +195,15 @@ async function assertBrandedSlugAvailable(env, slug) {
     throw new Error('Site name must be 4–32 characters to get a branded address — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
   }
   if (isReservedSlug(slug)) {
-    throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
   }
   const reserved = await env.DB.prepare('SELECT 1 FROM reserved_slugs WHERE slug = ?').bind(slug).first();
   if (reserved) {
-    throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
   }
   const taken = await getSiteByOrigin(env, canonicalOrigin(slug));
   if (taken) {
-    throw new Error(`"${canonicalOrigin(slug)}" is already taken — pick another name, or uncheck the branded-address box to use pages.dev only.`);
+    throw new Error(`"${canonicalOrigin(slug)}" is already taken — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
   }
 }
 
@@ -576,6 +577,8 @@ async function provision(request, env) {
 
   // Best-effort reverse-order cleanup of anything created mid-flow, so a failure
   // never leaves an orphaned repo, Pages project, DNS record, or D1 row behind.
+  // External resources are torn down first and the D1 row is deleted LAST, so a
+  // partial cleanup leaves a registry record an operator can see and finish.
   const created = {};
   const rollback = async () => {
     const job = async (fn) => {
@@ -585,20 +588,23 @@ async function provision(request, env) {
         // best-effort — a cleanup failure is logged by the caller's error path
       }
     };
-    if (created.origin) {
-      await job(() => env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(created.origin).run());
+    if (created.dns) {
+      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.dns}`, { method: 'DELETE' }));
+    }
+    if (created.ownershipTxt) {
+      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.ownershipTxt}`, { method: 'DELETE' }));
     }
     if (created.domainAttach) {
       await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
-    }
-    if (created.dns) {
-      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.dns}`, { method: 'DELETE' }));
     }
     if (created.pagesProject) {
       await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
     }
     if (created.repo) {
       await job(() => gh(ghT, `/repos/${login}/${slug}`, { method: 'DELETE' }));
+    }
+    if (created.origin) {
+      await job(() => env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(created.origin).run());
     }
   };
 
@@ -608,7 +614,7 @@ async function provision(request, env) {
     if (!cfToken) throw new Error('Cloudflare API token is required.');
     const branded = siteBranded === true;
     if (branded && !env.CF_ZONE_DNS_TOKEN) {
-      throw new Error('Branded subdomains are not configured on this panel (CF_ZONE_DNS_TOKEN missing).');
+      throw new Error('Branded subdomains are not configured on this panel (CF_ZONE_DNS_TOKEN missing) — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
     }
     const ghT = wizard.t;
     const login = wizard.login;
@@ -616,12 +622,16 @@ async function provision(request, env) {
     const panelOrigin = panelBase(env, request);
     const pagesDevUrl = `https://${slug}.pages.dev`;
 
-    // 0b. Naming guard. The pure kantan/reserved check runs on every path (a
-    //     kantan-brand squat is a squat whether or not the branded box is
-    //     checked). The 4–32 length floor, D1 reserved_slugs, and branded-origin
-    //     checks are branded-namespace policy and only apply when branded.
-    if (isReservedSlug(slug)) {
-      throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
+    // 0b. Naming guard. The kantan-brand guard runs on every path (a brand squat
+    //     is a squat whether or not the branded box is checked). The 4–32 length
+    //     floor, full denylist, D1 reserved_slugs, and branded-origin checks are
+    //     branded-namespace policy and only apply when branded.
+    if (isBrandSlug(slug)) {
+      throw new Error(
+        branded
+          ? `"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`
+          : `"${slug}" is reserved — pick another name.`,
+      );
     }
     if (branded) {
       await assertBrandedSlugAvailable(env, slug);
@@ -754,21 +764,57 @@ async function provision(request, env) {
 
       // 8b. Branded address: attach the domain to the user's Pages project
       //     (user token) + create the proxied CNAME in our zone (operator
-      //     token). The attachment starts "pending" and validates once the
-      //     CNAME resolves. This does not need to precede the first build (the
-      //     repo variable above already set the canonical URL for it).
+      //     token). The branded domain lives in OUR zone but the Pages project
+      //     in the user's account, so Cloudflare requires an ownership TXT
+      //     before the domain activates — we create it in our zone with the
+      //     operator token. Activation is async (DNS + certificate issuance);
+      //     poll briefly and report the honest status.
       if (branded) {
-        await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains`, {
+        const attach = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains`, {
           method: 'POST',
           body: { name: `${slug}.kantan-hp.fyi` },
         });
         created.domainAttach = `${slug}.kantan-hp.fyi`;
+        if (
+          attach &&
+          attach.validation_data &&
+          attach.validation_data.status === 'pending' &&
+          attach.validation_data.method === 'txt' &&
+          attach.validation_data.txt_name &&
+          attach.validation_data.txt_value
+        ) {
+          const txt = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records`, {
+            method: 'POST',
+            body: {
+              type: 'TXT',
+              name: attach.validation_data.txt_name,
+              content: attach.validation_data.txt_value,
+              ttl: 1,
+            },
+          });
+          created.ownershipTxt = txt.id;
+        }
         const dns = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records`, {
           method: 'POST',
-          body: { type: 'CNAME', name: slug, content: `${slug}.pages.dev`, proxied: true, ttl: 1 },
+          body: { type: 'CNAME', name: `${slug}.kantan-hp.fyi`, content: `${slug}.pages.dev`, proxied: true, ttl: 1 },
         });
         created.dns = dns.id;
-        ok('branded-domain', `https://${slug}.kantan-hp.fyi`);
+        let domainStatus = 'pending';
+        try {
+          for (let i = 0; i < 8 && domainStatus !== 'active'; i++) {
+            const dom = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${slug}.kantan-hp.fyi`);
+            domainStatus = (dom && dom.status) || 'pending';
+            if (domainStatus !== 'active') await sleep(2000);
+          }
+        } catch {
+          // the deploy is not blocked by the domain lifecycle; report pending
+        }
+        ok(
+          'branded-domain',
+          domainStatus === 'active'
+            ? `https://${slug}.kantan-hp.fyi active`
+            : `https://${slug}.kantan-hp.fyi pending — activates once Cloudflare validates the DNS records`,
+        );
       }
 
       // 8c. Set the site title to the site name — the template defaults to "Kantan HP".

@@ -1,16 +1,19 @@
 -- Branded subdomains: sites move from https://<slug>.pages.dev to the canonical
 -- https://<slug>.kantan-hp.fyi origin, with the pages.dev address recorded as
 -- deploy_url. Existing sites keep their pages.dev origin (deploy_url stays NULL
--- until they are migrated); the columns below are additive, so re-runs are safe.
+-- until they are migrated). Applied once by the D1 migrations ledger
+-- (ALTER TABLE ... ADD COLUMN is not re-runnable; only the CREATE/INSERT OR
+-- IGNORE parts below are idempotent).
 ALTER TABLE sites ADD COLUMN deploy_url TEXT;
 
--- Denylist of subdomain slugs no one may claim: reserved panel paths and
--- kantan-brand words. Checked at provisioning alongside the pure
--- isReservedSlug() helper in src/lib.js. Seeded with INSERT OR IGNORE so this
--- migration can be re-run idempotently.
+-- Denylist of subdomain slugs no one may claim on the branded namespace:
+-- reserved panel paths, kantan-brand words + typos, and trademark/impersonation
+-- words. Checked at branded provisioning alongside the pure isReservedSlug()
+-- helper in src/lib.js (which also enforces the kantan brand on every path).
+-- Seeded with INSERT OR IGNORE so this migration can be re-run idempotently.
 CREATE TABLE IF NOT EXISTS reserved_slugs (
   slug       TEXT PRIMARY KEY,  -- lowercased slug, no .kantan-hp.fyi suffix
-  reason     TEXT NOT NULL,     -- 'reserved' | 'panel-path' | 'brand'
+  reason     TEXT NOT NULL,     -- 'panel-path' | 'brand' | 'brand-typo' | 'trademark'
   created_at TEXT NOT NULL
 );
 

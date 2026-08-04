@@ -8,6 +8,7 @@ import {
   isAllowedSiteOrigin,
   canonicalOrigin,
   isReservedSlug,
+  isBrandSlug,
   slugLengthOk,
   b64encode,
   b64decode,
@@ -77,6 +78,17 @@ test('isReservedSlug', () => {
   assert.equal(isReservedSlug('my-blog'), false);
   assert.equal(isReservedSlug('app'), true);
   assert.equal(isReservedSlug('KANTAN-API'), true);
+});
+
+test('isBrandSlug applies the kantan brand guard on any namespace', () => {
+  assert.equal(isBrandSlug('kantan-login'), true);
+  assert.equal(isBrandSlug('my-kantan-blog'), true);
+  assert.equal(isBrandSlug('pay-kantan'), true);
+  assert.equal(isBrandSlug('kanntan'), true);
+  assert.equal(isBrandSlug('KANTA-HP'), true);
+  assert.equal(isBrandSlug('alice'), false);
+  assert.equal(isBrandSlug('app'), false);
+  assert.equal(isBrandSlug('google'), false);
 });
 
 test('slugLengthOk', () => {

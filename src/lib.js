@@ -111,25 +111,39 @@ export function canonicalOrigin(slug) {
   return `https://${slug}${BRANDED_SUFFIX}`;
 }
 
-/** Panel paths and brand-ish words no one may claim as a subdomain slug. */
+/** Panel paths and trademark-ish words that only collide on the branded namespace. */
 const RESERVED_SLUGS = new Set([
   'app', 'api', 'oauth', 'admin', 'mail', 'www', 'support', 'login', 'account',
   'docs', 'status', 'blog', 'dashboard', 'help', 'cdn', 'assets', 'files',
   'static', 'graphql', 'registry', 'security', 'abuse', 'about', 'terms',
-  'privacy', 'billing', 'events', 'explore', 'api-kantan', 'kantan-api',
-  // common typos of the kantan brand (case handled separately via includes)
+  'privacy', 'billing', 'events', 'explore',
+]);
+
+/** Brand family: exact kantan words + common typos (case handled separately). */
+const BRAND_SLUGS = new Set([
+  'kantan', 'kantan-hp', 'kantan-hp-fyi', 'kantan-app', 'kantan-blog',
+  'kantan-cms', 'api-kantan', 'kantan-api', 'blog', 'explore',
   'kanntan', 'kantaan', 'kanta-hp', 'kantanhp', 'kanta-hp-fyi',
 ]);
 
 /**
- * Pure denylist check for a subdomain slug. True when the slug embeds the
- * `kantan` brand (case-insensitive, so `kantan-hp` is caught too) or is one of
- * the hardcoded reserved panel paths. The D1 reserved_slugs table (seeded by
- * migration 0003) is an additional, separate check done in index.js.
+ * Brand squat guard for ANY namespace: the kantan brand (substring) or an exact
+ * brand word/typo. Applied on every provisioning path — a kantan-brand squat is
+ * a squat whether or not the branded box is checked.
+ */
+export function isBrandSlug(slug) {
+  const s = String(slug || '').toLowerCase();
+  return s.includes('kantan') || BRAND_SLUGS.has(s);
+}
+
+/**
+ * Full denylist for the branded *.kantan-hp.fyi namespace: brand squat guard
+ * plus panel-path words that would collide with panel routes on the apex.
+ * The D1 reserved_slugs table (seeded by migration 0003) is an additional,
+ * deploy-less-updatable check done in index.js for branded provisioning.
  */
 export function isReservedSlug(slug) {
-  const s = String(slug || '').toLowerCase();
-  return s.includes('kantan') || RESERVED_SLUGS.has(s);
+  return isBrandSlug(slug) || RESERVED_SLUGS.has(String(slug || '').toLowerCase());
 }
 
 /** Subdomain slugs must be 4–32 chars. */
