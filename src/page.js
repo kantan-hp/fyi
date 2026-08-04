@@ -386,22 +386,21 @@ export function appPage({ email, sites, hasSites }) {
         refreshCreateButton();
       };
 
-      $('site-name').oninput = () => {
-        refreshCreateButton();
-        // Short names can't carry a branded address; fall back to pages.dev
-        // only instead of failing the default (checked) path on the server.
-        const branded = $('site-branded');
+      // Short names can't carry a branded address. Show a live hint while
+      // typing, but only act on the FINAL submitted name (in the create handler
+      // below) so a name that grows to >=4 chars keeps the default-checked box.
+      const updateBrandedHint = () => {
         const name = $('site-name').value.trim();
         const hint = $('branded-fallback-hint');
-        if (branded.checked && name.length > 0 && name.length < 4) {
-          branded.checked = false;
-          hint.textContent = 'Too short for a branded address — using pages.dev only.';
+        if ($('site-branded').checked && name.length > 0 && name.length < 4) {
+          hint.textContent = 'Too short for a branded address — will use pages.dev only.';
           hint.classList.remove('hidden');
         } else {
           hint.classList.add('hidden');
         }
       };
-      $('site-branded').onchange = () => $('branded-fallback-hint').classList.add('hidden');
+      $('site-name').oninput = () => { refreshCreateButton(); updateBrandedHint(); };
+      $('site-branded').onchange = () => { updateBrandedHint(); };
 
       // Progress bar: simulated advance while the single provisioning POST runs
       // (there is no per-step streaming yet), then snap to 100% (ok) or 85% (err).
@@ -435,6 +434,13 @@ export function appPage({ email, sites, hasSites }) {
         };
         let data;
         try {
+          // Fall back to pages.dev-only for names too short to carry a branded
+          // address, evaluated on the FINAL name so a box the user left checked
+          // doesn't hard-fail (and never silently unchecks a name that grew).
+          if ($('site-branded').checked && $('site-name').value.trim().length < 4) {
+            $('site-branded').checked = false;
+            updateBrandedHint();
+          }
           const r = await fetch('/api/provision', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
