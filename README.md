@@ -103,9 +103,13 @@ Every provisioned site is stamped with the `template_version` (the template `mai
 SHA) it was generated from. The panel uses this anchor for a safe update path
 (`2026-08-04-kantan-site-versioning-and-updates.md`):
 
-- **Badge → check → update**: the site table shows **Up to date / Update available /
-  Baseline needed**; a per-site action runs `/api/sites/check`, shows the file-level
-  diff and any major bumps, then `/api/sites/update` applies it.
+- **More info → check → update**: each site row has a **More info** slide-down with the
+  editor link and an **Upgradable** state (`yes` / `no` / `N/A`). The check is always
+  gated behind a GitHub connect (one consistent path, no public/private special-casing);
+  `/api/sites/check` returns the state, `/api/sites/update` applies it.
+- **Deterministic states**: `yes` only when every gate passes (clean, no collisions,
+  template CI green, newer version); `no` when clean and current; `N/A` (with a reason)
+  for anything else — dirty, collision, CI red, unreadable repo, legacy site.
 - **Fitness gate**: the site's core tree is compared (by blob SHA) to
   `template@recorded_version`. Modified or deleted core files make the site **dirty**
   and block updates with a drift report — no changes are made. Pure additions and all
@@ -116,9 +120,8 @@ SHA) it was generated from. The panel uses this anchor for a safe update path
 - **Zero-knowledge preserved**: all site-repo reads/writes use the short-lived wizard
   token from the same "Connect GitHub" handshake; the update runs on the site's own
   default branch and its existing `deploy.yml` rebuilds.
-- **Baseline**: sites created before versioning (no `template_version`) get a
-  "Baseline needed" badge; a baseline is only accepted when the core still matches the
-  current template, so nothing is silently assumed clean.
+- **Legacy**: sites created before versioning (no `template_version`) are shown as
+  `N/A` for now; baseline handling is out of scope while this is test-scoped.
 
 Migration is applied with `npx wrangler d1 migrations apply kantan-panel-db --remote`.
 

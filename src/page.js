@@ -69,7 +69,15 @@ ul.changes li.deleted::before { content: "- "; color: #b3261e; }
 .modal-backdrop.open { display: flex; }
 .modal { background: #fff; border-radius: 16px; max-width: 560px; width: 100%; max-height: 85vh; overflow: auto; padding: 1.5rem; }
 .modal h3 { margin: 0 0 .6rem; }
-.modal .actions { display: flex; gap: .6rem; margin-top: 1.1rem; flex-wrap: wrap; }`;
+.modal .actions { display: flex; gap: .6rem; margin-top: 1.1rem; flex-wrap: wrap; }
+tr.site-detail.hidden { display: none; }
+tr.site-detail td { padding: 0; }
+.detail-wrap { background: #faf9f7; border-top: 1px solid #eee; padding: .8rem 1.4rem 1rem; font-size: .88rem; }
+.detail-row { display: flex; align-items: center; gap: .8rem; padding: .3rem 0; }
+.detail-row .muted { width: 7.5rem; flex-shrink: 0; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+.upg .badge { margin-left: 0; }
+.detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
+.detail-reason .err { display: block; }`;
 
 function shell(title, body) {
   return `<!doctype html>
@@ -183,38 +191,29 @@ export function messagePage(title, text) {
 }
 
 export function appPage({ email, sites, hasSites }) {
-  const badgeHtml = (b) => {
-    if (!b) return `<span class="muted" style="font-size:.8rem">—</span>`;
-    const cls = b.key === 'dirty' ? 'dirty' : b.key;
-    return `<span class="badge ${cls}">${b.label}</span>`;
-  };
-  const siteAction = (s) => {
-    if (s.badge && s.badge.key === 'baseline') {
-      return `<button class="btn secondary" style="padding:.35rem .8rem; font-size:.8rem" data-baseline="${s.origin}">Set baseline</button>`;
-    }
-    if (s.badge && s.badge.key === 'update') {
-      return `<button class="btn secondary" style="padding:.35rem .8rem; font-size:.8rem" data-update="${s.origin}">Update</button>`;
-    }
-    return '';
-  };
   const table = hasSites
     ? `<section class="card" id="sites-card">
         <h2>Your sites</h2>
         <table class="sites">
-          <thead><tr><th>Site</th><th>Version</th><th>Created</th><th></th></tr></thead>
+          <thead><tr><th>Site</th><th>Created</th><th></th></tr></thead>
           <tbody>
             ${sites
               .map(
                 (s) =>
-                  `<tr>
-                    <td><a href="${s.origin}" target="_blank" rel="noopener">${s.origin.replace('https://', '')}</a>
+                  `<tr class="site-row" data-origin="${s.origin}">
+                    <td><a href="${s.origin}" target="_blank" rel="noopener" class="site-link">${s.origin.replace('https://', '')}</a>
                       <div class="muted" style="font-size:.72rem; margin-top:.1rem">${s.repo}</div>
                     </td>
-                    <td>${badgeHtml(s.badge)}${s.template_version ? `<div class="ver sha" style="margin-top:.2rem">${s.template_version.slice(0, 12)}…</div>` : ''}</td>
                     <td class="muted">${new Date(s.created_at).toLocaleDateString()}</td>
-                    <td style="white-space:nowrap">
-                      ${siteAction(s)}
-                      <a href="${s.origin}/admin" target="_blank" rel="noopener" style="font-size:.85rem; margin-left:.5rem">editor</a>
+                    <td style="white-space:nowrap"><button class="btn secondary" style="padding:.35rem .8rem; font-size:.8rem" data-more="${s.origin}">More info</button></td>
+                  </tr>
+                  <tr class="site-detail hidden" data-detail="${s.origin}">
+                    <td colspan="3">
+                      <div class="detail-wrap">
+                        <div class="detail-row"><span class="muted">Editor</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
+                        <div class="detail-row"><span class="muted">Upgradable</span> <span class="upg" data-upg="${s.origin}"><button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">check</button></span></div>
+                        <div class="detail-reason" data-reason="${s.origin}"></div>
+                      </div>
                     </td>
                   </tr>`,
               )
@@ -456,7 +455,7 @@ export function appPage({ email, sites, hasSites }) {
 
       init();
 
-      // ---- Update / baseline flow --------------------------------------
+      // ---- More info slide-down + upgrade check flow --------------------
       const modal = $('update-modal');
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -470,23 +469,10 @@ export function appPage({ email, sites, hasSites }) {
       const closeModal = () => modal.classList.remove('open');
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-      const handleUnauth = async (r) => {
-        if (r.status === 401) {
-          const data = await r.json().catch(() => ({}));
-          if (data.connectUrl) {
-            openModal('Connect GitHub', '<p>To check for updates the panel needs a short-lived GitHub token. Connect GitHub to continue — the token is used once and never stored.</p>', '<a class="btn" href="' + data.connectUrl + '">Connect GitHub</a> <button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Cancel</button>');
-            return true;
-          }
-        }
-        return false;
-      };
-
       const errorModal = (msg) => {
         openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
       };
 
-      // Shared POST helper: never leaves the modal stuck. Handles the connect
-      // prompt (401), server errors (non-2xx / error body) and network failures.
       const apiPost = async (path, body) => {
         let r;
         try {
@@ -495,102 +481,147 @@ export function appPage({ email, sites, hasSites }) {
           errorModal('Could not reach the panel: ' + ((err && err.message) || err) + '. Try again.');
           return null;
         }
-        if (await handleUnauth(r)) return null;
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok && !data.blocked) {
-          errorModal(data.error || ('Request failed (' + r.status + ').'));
+        if (r.status === 401) {
+          const d = await r.json().catch(() => ({}));
+          if (d.connectUrl) return { connectUrl: d.connectUrl };
+          errorModal('Not signed in.');
           return null;
         }
+        const data = await r.json().catch(() => ({}));
+        // 409 {blocked:...} is a handled state (e.g. major-bump confirm), not a
+        // generic error — let it through so the caller can act on data.blocked.
+        if (!r.ok && !data.blocked) { errorModal(data.error || ('Request failed (' + r.status + ').')); return null; }
         return data;
       };
 
-      document.querySelectorAll('[data-update]').forEach((btn) => {
-        btn.onclick = async () => {
-          const origin = btn.dataset.update;
-          openModal('Checking…', '<p class="muted">Comparing your site against the template…</p>', '');
-          const data = await apiPost('/api/sites/check', { origin });
-          if (!data) return;
-          if (data.upToDate) {
-            openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
-            btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
-            return;
-          }
-          if (data.needsBaseline) {
-            openModal('Baseline needed', '<p>This site was created before version tracking existed, so there is no recorded baseline. Set the current template as your baseline to enable updates (only accepted if your core still matches the template).</p>', '<button class="btn" id="baseline-go" data-origin="' + esc(origin) + '">Set baseline</button> <button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Cancel</button>');
-            $('baseline-go').onclick = () => doBaseline(origin, btn);
-            return;
-          }
-          if (data.fit === 'dirty') {
-            const rows = (data.drifted || []).map((d) => '<li>' + esc(d.path) + '</li>').join('');
-            openModal('Update blocked', '<p>Your site has core files that differ from the template version it was provisioned from. Updates are blocked so your changes are never overwritten.</p><p class="muted">Files that block the update:</p><ul class="drift">' + (rows || '<li>(none listed)</li>') + '</ul><p class="muted">This is the escape hatch for a customized site — copy your posts, images and settings to a fresh site.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
-            btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge dirty">Update blocked</span>';
-            return;
-          }
+      const REASON_TEXT = {
+        dirty: 'Your site has core files that differ from the template — updates are blocked so your changes are never overwritten.',
+        collision: 'The template now adds files that already exist in your site — the update would overwrite them.',
+        ci: 'The template is not passing its own CI right now — updates are held until it is green.',
+        legacy: 'This site was created before version tracking existed. Upgrades are not offered for it yet.',
+        unreadable: 'The site repo could not be read (private, deleted, or no access).',
+      };
 
-          // Clean: show diff summary + gates, then confirm.
-          const changes = data.changes || [];
-          const list = changes.slice(0, 30).map((c) => '<li class="' + esc(c.status) + '">' + esc(c.path) + '</li>').join('');
-          const extra = changes.length > 30 ? '<p class="muted">…and ' + (changes.length - 30) + ' more</p>' : '';
-          let gates = '';
-          if (!data.ciGreen) gates += '<p class="err">The template is not passing its own CI right now — updates are held until it is green.</p>';
-          if (data.majorBumps && data.majorBumps.length) gates += '<p class="err"><strong>Major version bump:</strong> ' + esc(data.majorBumps.join(', ')) + '. This can change the look or break customizations — review before updating.</p>';
-          const body = '<p>Updating <code>' + esc(origin) + '</code> from template <code>' + shortSha(data.from) + '</code> to <code>' + shortSha(data.to) + '</code>.</p>' +
-            '<p>Your posts, images and settings are never touched. Files that change:</p>' +
-            '<ul class="changes">' + (list || '<li>no core file changes</li>') + '</ul>' + extra + gates;
-          openModal('Update available', body,
-            '<button class="btn" id="update-go" data-origin="' + esc(origin) + '"' + (!data.ciGreen ? ' disabled' : '') + '>Update to ' + shortSha(data.to) + '</button>' +
-            '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Cancel</button>');
-          if (data.ciGreen) {
-            $('update-go').onclick = () => doUpdate(origin, btn, data.majorBumps && data.majorBumps.length > 0);
-          }
-        };
+      const upgHtml = (up) => {
+        const s = up && up.upgradeable;
+        const cls = s === 'yes' ? 'update' : s === 'no' ? 'uptodate' : 'dirty';
+        const label = s === 'yes' ? 'Yes' : s === 'no' ? 'No' : 'N/A';
+        return '<span class="badge ' + cls + '">' + label + '</span>';
+      };
+
+      // Row click / More info toggles the slide-down. The site link itself keeps
+      // navigating directly (stopPropagation on the anchor).
+      const toggleDetail = (origin) => {
+        const detail = document.querySelector('[data-detail="' + origin + '"]');
+        if (detail) detail.classList.toggle('hidden');
+      };
+      document.querySelectorAll('[data-more]').forEach((btn) => {
+        btn.onclick = (e) => { e.stopPropagation(); toggleDetail(btn.dataset.more); };
+      });
+      document.querySelectorAll('.site-row').forEach((row) => {
+        row.onclick = () => toggleDetail(row.dataset.origin);
+      });
+      document.querySelectorAll('.site-link').forEach((a) => {
+        a.onclick = (e) => e.stopPropagation();
       });
 
-      document.querySelectorAll('[data-baseline]').forEach((btn) => {
-        btn.onclick = async () => {
-          const origin = btn.dataset.baseline;
-          openModal('Checking…', '<p class="muted">Verifying your site matches the current template…</p>', '');
-          const data = await apiPost('/api/sites/check', { origin });
-          if (!data) return;
-          if (data.needsBaseline) {
-            openModal('Baseline needed', '<p>Set the current template as your baseline. This is only accepted if your site\'s core still matches the template (otherwise a drift report is shown instead).</p>', '<button class="btn" id="baseline-go2" data-origin="' + esc(origin) + '">Set baseline</button> <button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Cancel</button>');
-            $('baseline-go2').onclick = () => doBaseline(origin, btn);
-            return;
+      const renderCheck = (origin, data) => {
+        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
+        const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
+        if (!upgCell) return;
+        if (data && data.upgradeable) {
+          upgCell.innerHTML = upgHtml(data);
+          const reason = REASON_TEXT[data.reason];
+          reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
+          if (data.upgradeable === 'yes') {
+            upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">Update</button>');
+            upgCell.querySelector('[data-upgrade]').onclick = () => openUpdateModal(origin);
           }
-          if (data.fit === 'dirty') {
-            const rows = (data.drifted || []).map((d) => '<li>' + esc(d.path) + '</li>').join('');
-            openModal('Baseline rejected', '<p>Your core differs from the current template, so a baseline would be dishonest. Resolve the drift or start fresh and bring your content over.</p><ul class="drift">' + (rows || '') + '</ul>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
-            btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge dirty">Update blocked</span>';
-            return;
-          }
-          openModal('Up to date', '<p>Your site already matches the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
-          btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
-        };
-      });
-
-      async function doBaseline(origin, btn) {
-        const data = await apiPost('/api/sites/baseline', { origin });
-        if (!data) return;
-        if (data.ok) {
-          openModal('Baseline set', '<p>Your site is now tracked at template <code>' + shortSha(data.templateVersion) + '</code>.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
-          btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
         } else {
-          openModal('Baseline rejected', '<p class="err">' + esc(data.error || 'Could not set the baseline.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+          upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
         }
+      };
+
+      const runCheck = async (origin) => {
+        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
+        if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">Checking…</span>';
+        const data = await apiPost('/api/sites/check', { origin });
+        if (!data) return; // apiPost already showed an error modal
+        if (data.connectUrl) {
+          // No active GitHub connect: remember which site to re-check on return.
+          localStorage.setItem('kantan-check-site', origin);
+          location.href = data.connectUrl;
+          return;
+        }
+        renderCheck(origin, data);
+      };
+
+      // Return-to-site: after the /auth/github round-trip the panel reloads at
+      // /app; reopen the site we were checking and run the check in place.
+      (function returnToSite() {
+        const pending = localStorage.getItem('kantan-check-site');
+        if (!pending) return;
+        localStorage.removeItem('kantan-check-site');
+        const row = document.querySelector('[data-origin="' + pending + '"]');
+        if (!row) return;
+        const detail = document.querySelector('[data-detail="' + pending + '"]');
+        if (detail) detail.classList.remove('hidden');
+        runCheck(pending);
+      })();
+
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-check]');
+        if (btn) { e.stopPropagation(); runCheck(btn.dataset.check); }
+      });
+
+      async function openUpdateModal(origin) {
+        openModal('Checking…', '<p class="muted">Comparing your site against the template…</p>', '');
+        const data = await apiPost('/api/sites/check', { origin });
+        if (!data) return;
+        if (data.connectUrl) {
+          localStorage.setItem('kantan-check-site', origin);
+          location.href = data.connectUrl;
+          return;
+        }
+        if (data.upgradeable === 'no') {
+          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          renderCheck(origin, data);
+          return;
+        }
+        if (data.upgradeable === 'N/A') {
+          const reason = REASON_TEXT[data.reason] || 'This site cannot be updated right now.';
+          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+          renderCheck(origin, data);
+          return;
+        }
+        // yes: diff summary + gates, then confirm.
+        const changes = data.changes || [];
+        const list = changes.slice(0, 30).map((c) => '<li class="' + esc(c.status) + '">' + esc(c.path) + '</li>').join('');
+        const extra = changes.length > 30 ? '<p class="muted">…and ' + (changes.length - 30) + ' more</p>' : '';
+        let gates = '';
+        if (data.majorBumps && data.majorBumps.length) gates += '<p class="err"><strong>Major version bump:</strong> ' + esc(data.majorBumps.join(', ')) + '. This can change the look or break customizations — review before updating.</p>';
+        const body = '<p>Updating <code>' + esc(origin) + '</code> from template <code>' + shortSha(data.from) + '</code> to <code>' + shortSha(data.to) + '</code>.</p>' +
+          '<p>Your posts, images and settings are never touched. Files that change:</p>' +
+          '<ul class="changes">' + (list || '<li>no core file changes</li>') + '</ul>' + extra + gates;
+        openModal('Update available', body,
+          '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">Update to ' + shortSha(data.to) + '</button>' +
+          '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
+        $('update-go').onclick = () => doUpdate(origin, data.majorBumps && data.majorBumps.length > 0);
       }
 
-      async function doUpdate(origin, btn, major) {
+      async function doUpdate(origin, major) {
         openModal('Updating…', '<p class="muted">Applying the update and rebuilding your site. This takes a minute or two.</p>', '');
         const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
         if (!data) return;
         if (data.ok) {
           openModal('Update complete', '<p>Your site is updated to template <code>' + shortSha(data.to) + '</code> (' + data.changed + ' file(s) changed). The deploy has been triggered — it takes a minute or two to go live.</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">View the build</a></p>', '<button class="btn" onclick="location.href=\'/app\'">Done</button>');
-          if (btn) btn.closest('tr').querySelector('td:nth-child(2)').innerHTML = '<span class="badge uptodate">Up to date</span>';
+          renderCheck(origin, { upgradeable: 'no' });
         } else {
           let body = '<p class="err">' + esc(data.error || 'Update failed.') + '</p>';
           if (data.blocked === 'major') body = '<p>This update bumps a major version (<code>' + esc((data.majorBumps || []).join(', ')) + '</code>). It can change the look or break customizations.</p><p class="err">Confirm to continue, or cancel.</p>';
           openModal('Update failed', body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\'' + esc(origin) + '\', null, true)">Confirm &amp; update anyway</button>'
+            ? '<button class="btn" onclick="doUpdate(\'' + esc(origin) + '\', true)">Confirm &amp; update anyway</button>'
             : '') + '<button class="btn secondary" onclick="document.getElementById(\'update-modal\').classList.remove(\'open\')">Close</button>');
         }
       }
