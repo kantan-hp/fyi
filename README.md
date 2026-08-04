@@ -75,7 +75,14 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
    npx wrangler secret put RESEND_API_KEY    # free tier is fine
    npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi
    ```
-5. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
+5. **Enforce https on the zone** (dash.cloudflare.com → kantan-hp.fyi → SSL/TLS):
+   - Edge Certificates → **Always Use HTTPS** → On (301 http→https at the edge).
+   - Edge Certificates → **Automatic HTTPS Rewrites** → On.
+   - Edge Certificates → **HSTS** → On, Max Age `31536000`, Include Subdomains On.
+   - This matters because GitHub OAuth callback URLs are registered for `https://`
+     only, and mobile browsers won't auto-upgrade a plain-http request — the
+     worker's `redirect_uri` is derived from the request origin.
+6. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
 
 For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run dev`.
 Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
@@ -89,6 +96,34 @@ emailing it, so the whole flow is testable locally with zero setup.
   **Cloudflare Pages: Edit** and **Account Settings: Read** — the read permission
   lets the panel detect the account automatically. Without it, the panel asks for
   the account ID instead.
+
+## Versioned, fitness-gated updates
+
+Every provisioned site is stamped with the `template_version` (the template `main`
+SHA) it was generated from. The panel uses this anchor for a safe update path
+(`2026-08-04-kantan-site-versioning-and-updates.md`):
+
+- **More info → check → update**: each site row has a **More info** slide-down with the
+  editor link and an **Upgradable** state (`yes` / `no` / `N/A`). The check is always
+  gated behind a GitHub connect (one consistent path, no public/private special-casing);
+  `/api/sites/check` returns the state, `/api/sites/update` applies it.
+- **Deterministic states**: `yes` only when every gate passes (clean, no collisions,
+  template CI green, newer version); `no` when clean and current; `N/A` (with a reason)
+  for anything else — dirty, collision, CI red, unreadable repo, legacy site.
+- **Fitness gate**: the site's core tree is compared (by blob SHA) to
+  `template@recorded_version`. Modified or deleted core files make the site **dirty**
+  and block updates with a drift report — no changes are made. Pure additions and all
+  user data (`src/content/**`, `public/images/**`, `src/config.json`) are preserved.
+- **Only green templates offered**: `/api/sites/update` refuses unless the template's
+  own CI (`ci.yml`) is green on main, and major bumps (Astro/Sveltia) require an
+  explicit confirm.
+- **Zero-knowledge preserved**: all site-repo reads/writes use the short-lived wizard
+  token from the same "Connect GitHub" handshake; the update runs on the site's own
+  default branch and its existing `deploy.yml` rebuilds.
+- **Legacy**: sites created before versioning (no `template_version`) are shown as
+  `N/A` for now; baseline handling is out of scope while this is test-scoped.
+
+Migration is applied with `npx wrangler d1 migrations apply kantan-panel-db --remote`.
 
 ## Known POC limitations
 

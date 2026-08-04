@@ -1,0 +1,11 @@
+-- Add the versioned-core anchor to the site registry.
+--
+-- template_version records the template `main` commit SHA the site's core was
+-- provisioned from. It is the panel-owned integrity anchor for the fitness gate:
+-- "clean" is defined as "core tree matches template@template_version", and only
+-- the panel can advance it (on a verified update or an explicit baseline).
+--
+-- Existing sites (e.g. kantan-test-blog) have no recorded version and are left
+-- NULL (version unknown) — they require a manual baseline before updates are
+-- offered; the panel never silently assumes them clean.
+ALTER TABLE sites ADD COLUMN template_version TEXT;
