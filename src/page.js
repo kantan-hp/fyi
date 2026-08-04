@@ -185,7 +185,7 @@ export function appPage({ email, sites, hasSites }) {
         <button class="btn secondary" id="new-site" style="margin-top:.75rem">Create another site</button>
       </section>`
     : '';
-  const wizardHidden = hasSites ? ' hidden' : '';
+  const wizardHidden = hasSites ? 'hidden' : '';
   return shell(
     'Dashboard — kantan',
     `<main class="wrap">
@@ -196,7 +196,8 @@ export function appPage({ email, sites, hasSites }) {
 
       ${table}
 
-      <section class="card${wizardHidden}" id="wizard">
+      <div id="wizard" class="${wizardHidden}">
+      <section class="card">
         <h2><span class="num">1</span> Connect GitHub</h2>
         <p>Your site lives in a new repository in your GitHub account. We ask for
            <code>repo</code> access so we can create it and set it up for you.</p>
@@ -250,6 +251,7 @@ export function appPage({ email, sites, hasSites }) {
         <ul class="steps" id="progress"></ul>
         <div id="result"></div>
       </section>
+      </div>
     </main>
 
     <script>
