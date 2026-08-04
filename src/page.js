@@ -12,10 +12,11 @@ a { color: #1a1a1a; }
 .btn {
   display: inline-block; font: inherit; font-size: .95rem; font-weight: 600;
   padding: .65rem 1.3rem; border-radius: 999px; border: 1px solid #1a1a1a;
-  background: #1a1a1a; color: #fff; cursor: pointer; text-decoration: none;
+  background: #fff; color: #1a1a1a; cursor: pointer; text-decoration: none;
 }
-.btn:hover { opacity: .9; }
-.btn.secondary { background: #fff; color: #1a1a1a; }
+.btn:hover { background: #f4f3f0; }
+.btn.active { background: #1a1a1a; color: #fff; }
+.btn.active:hover { opacity: .9; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 input[type="email"], input[type="text"], input[type="password"] {
   font: inherit; font-size: .95rem; width: 100%; padding: .6rem .8rem;
@@ -190,7 +191,7 @@ export function messagePage(title, text) {
     `<main class="wrap"><div class="card">
       <h2>${title}</h2>
       <p>${text}</p>
-      <p><a class="btn secondary" href="/">Back to kantan</a></p>
+      <p><a class="btn" href="/">Back to kantan</a></p>
     </div></main>`,
   );
 }
@@ -210,13 +211,13 @@ export function appPage({ email, sites, hasSites }) {
                       <div class="muted" style="font-size:.72rem; margin-top:.1rem">${s.repo}</div>
                     </td>
                     <td class="muted">${new Date(s.created_at).toLocaleDateString()}</td>
-                    <td style="text-align:right; white-space:nowrap"><button class="btn secondary info-glyph" title="More info" aria-label="More info" data-more="${s.origin}">i</button></td>
+                    <td style="text-align:right; white-space:nowrap"><button class="btn info-glyph" title="More info" aria-label="More info" data-more="${s.origin}">i</button></td>
                   </tr>
                   <tr class="site-detail hidden" data-detail="${s.origin}">
                     <td colspan="3">
                       <div class="detail-wrap">
                         <div class="detail-row"><span class="muted">Editor</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
-                        <div class="detail-row"><span class="muted">Upgradable</span> <span class="upg" data-upg="${s.origin}"><button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">check</button></span></div>
+                        <div class="detail-row"><span class="muted">Upgradable</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">check</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
                       </div>
                     </td>
@@ -225,7 +226,7 @@ export function appPage({ email, sites, hasSites }) {
               .join('')}
           </tbody>
         </table>
-        <button class="btn secondary" id="new-site" style="margin-top:.75rem">Create another site</button>
+        <button class="btn" id="new-site" style="margin-top:.75rem">Create another site</button>
       </section>`
     : '';
   const wizardHidden = hasSites ? 'hidden' : '';
@@ -263,7 +264,7 @@ export function appPage({ email, sites, hasSites }) {
            detect your account automatically; the token is used once to create your site
            and is never stored here.</p>
         <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
-        <button class="btn secondary" id="cf-verify">Verify token</button>
+        <button class="btn" id="cf-verify">Verify token</button>
         <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
           <label style="font-size:.8rem; color:#555" for="cf-account">Cloudflare account</label>
           <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
@@ -313,7 +314,7 @@ export function appPage({ email, sites, hasSites }) {
       const newSite = $('new-site');
       if (newSite) newSite.onclick = () => {
         const nowHidden = wizard.classList.toggle('hidden');
-        newSite.classList.toggle('secondary', nowHidden);
+        newSite.classList.toggle('active', !nowHidden);
       };
 
       function refreshCreateButton() {
@@ -475,7 +476,7 @@ export function appPage({ email, sites, hasSites }) {
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
       const errorModal = (msg) => {
-        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
       };
 
       const apiPost = async (path, body) => {
@@ -523,7 +524,7 @@ export function appPage({ email, sites, hasSites }) {
         const btn = document.querySelector('[data-more="' + origin + '"]');
         if (detail) {
           const nowHidden = detail.classList.toggle('hidden');
-          if (btn) btn.classList.toggle('secondary', nowHidden);
+          if (btn) btn.classList.toggle('active', !nowHidden);
         }
       };
       document.querySelectorAll('[data-more]').forEach((btn) => {
@@ -549,7 +550,7 @@ export function appPage({ email, sites, hasSites }) {
             upgCell.querySelector('[data-upgrade]').onclick = () => openUpdateModal(origin);
           }
         } else {
-          upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
           upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
         }
       };
@@ -561,7 +562,7 @@ export function appPage({ email, sites, hasSites }) {
         const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
         if (reasonCell) reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
         if (upgCell) {
-          upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
         }
       };
 
@@ -601,7 +602,7 @@ export function appPage({ email, sites, hasSites }) {
         if (detail) {
           detail.classList.remove('hidden');
           const btn = document.querySelector('[data-more="' + pending + '"]');
-          if (btn) btn.classList.remove('secondary');
+          if (btn) btn.classList.add('active');
         }
         runCheck(pending, { fromReturn: true });
       })();
@@ -635,13 +636,13 @@ export function appPage({ email, sites, hasSites }) {
           return;
         }
         if (data.upgradeable === 'no') {
-          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
           renderCheck(origin, data);
           return;
         }
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || 'This site cannot be updated right now.';
-          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
           renderCheck(origin, data);
           return;
         }
@@ -656,7 +657,7 @@ export function appPage({ email, sites, hasSites }) {
           '<ul class="changes">' + (list || '<li>no core file changes</li>') + '</ul>' + extra + gates;
         openModal('Update available', body,
           '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">Update to ' + shortSha(data.to) + '</button>' +
-          '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
         $('update-go').onclick = () => doUpdate(origin, data.majorBumps && data.majorBumps.length > 0);
       }
 
@@ -672,7 +673,7 @@ export function appPage({ email, sites, hasSites }) {
           if (data.blocked === 'major') body = '<p>This update bumps a major version (<code>' + esc((data.majorBumps || []).join(', ')) + '</code>). It can change the look or break customizations.</p><p class="err">Confirm to continue, or cancel.</p>';
           openModal('Update failed', body, (data.blocked === 'major'
             ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">Confirm &amp; update anyway</button>'
-            : '') + '<button class="btn secondary" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+            : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
         }
       }
     </script>`,
