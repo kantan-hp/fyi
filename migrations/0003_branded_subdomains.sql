@@ -44,11 +44,34 @@ INSERT OR IGNORE INTO reserved_slugs (slug, reason, created_at) VALUES
   ('events',   'panel-path', datetime('now'));
 
 -- Kantan brand lookalikes — the brand substring check already blocks slugs that
--- merely embed "kantan", but reserve the exact words explicitly for clarity.
+-- merely embed "kantan", but reserve the exact words (and common typos) for
+-- clarity. Kept in sync with the pure RESERVED_SLUGS set in src/lib.js.
 INSERT OR IGNORE INTO reserved_slugs (slug, reason, created_at) VALUES
   ('kantan',      'brand', datetime('now')),
   ('kantan-hp',   'brand', datetime('now')),
   ('kantan-hp-fyi', 'brand', datetime('now')),
   ('kantan-app',  'brand', datetime('now')),
   ('kantan-blog', 'brand', datetime('now')),
-  ('kantan-cms',  'brand', datetime('now'));
+  ('kantan-cms',  'brand', datetime('now')),
+  ('blog',        'brand', datetime('now')),
+  ('explore',     'brand', datetime('now')),
+  ('api-kantan',  'brand', datetime('now')),
+  ('kantan-api',  'brand', datetime('now')),
+  ('kanntan',     'brand-typo', datetime('now')),
+  ('kantaan',     'brand-typo', datetime('now')),
+  ('kanta-hp',    'brand-typo', datetime('now')),
+  ('kantanhp',    'brand-typo', datetime('now')),
+  ('kanta-hp-fyi','brand-typo', datetime('now'));
+
+-- Trademark/impersonation names likely to be phished on a branded namespace.
+-- This is a starting seed, editable in D1 without a deploy; the takedown plan
+-- is the long-term defense-in-depth.
+INSERT OR IGNORE INTO reserved_slugs (slug, reason, created_at) VALUES
+  ('google', 'trademark', datetime('now')),
+  ('apple',  'trademark', datetime('now')),
+  ('paypal', 'trademark', datetime('now')),
+  ('amazon', 'trademark', datetime('now')),
+  ('microsoft', 'trademark', datetime('now')),
+  ('netflix', 'trademark', datetime('now')),
+  ('facebook', 'trademark', datetime('now')),
+  ('twitter', 'trademark', datetime('now'));

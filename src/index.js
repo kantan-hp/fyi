@@ -191,18 +191,18 @@ async function getSiteByDeployUrl(env, deployUrl) {
  */
 async function assertBrandedSlugAvailable(env, slug) {
   if (!slugLengthOk(slug)) {
-    throw new Error('Site name must be 4–32 characters to get a branded address.');
+    throw new Error('Site name must be 4–32 characters to get a branded address — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
   }
   if (isReservedSlug(slug)) {
-    throw new Error(`"${slug}" is reserved — pick another name.`);
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
   }
   const reserved = await env.DB.prepare('SELECT 1 FROM reserved_slugs WHERE slug = ?').bind(slug).first();
   if (reserved) {
-    throw new Error(`"${slug}" is reserved — pick another name.`);
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
   }
   const taken = await getSiteByOrigin(env, canonicalOrigin(slug));
   if (taken) {
-    throw new Error(`"${canonicalOrigin(slug)}" is already taken — pick another name.`);
+    throw new Error(`"${canonicalOrigin(slug)}" is already taken — pick another name, or uncheck the branded-address box to use pages.dev only.`);
   }
 }
 
@@ -616,9 +616,13 @@ async function provision(request, env) {
     const panelOrigin = panelBase(env, request);
     const pagesDevUrl = `https://${slug}.pages.dev`;
 
-    // 0b. Naming guard — only for the branded namespace (reserved slugs protect
-    //     *.kantan-hp.fyi; pages.dev names are globally unique and their own
-    //     availability check already handles collisions).
+    // 0b. Naming guard. The pure kantan/reserved check runs on every path (a
+    //     kantan-brand squat is a squat whether or not the branded box is
+    //     checked). The 4–32 length floor, D1 reserved_slugs, and branded-origin
+    //     checks are branded-namespace policy and only apply when branded.
+    if (isReservedSlug(slug)) {
+      throw new Error(`"${slug}" is reserved — pick another name, or uncheck the branded-address box to use pages.dev only.`);
+    }
     if (branded) {
       await assertBrandedSlugAvailable(env, slug);
       ok('name-guard', `${slug}.kantan-hp.fyi available`);
@@ -715,7 +719,18 @@ async function provision(request, env) {
       await putSecret('CF_PAGES_PROJECT', slug);
       ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID, CF_PAGES_PROJECT');
 
-      // 7. Point the editor at this repo + the panel's shared auth proxy.
+      // 7. Branded: set the canonical-site-URL repo variable BEFORE the
+      //    deploy-triggering commit. GitHub Actions resolves repo variables when
+      //    a run starts, so setting PUBLIC_SITE_URL after the commit below would
+      //    ship a placeholder RSS/sitemap canonical on the first deploy.
+      if (branded) {
+        await ghJson(ghT, `/repos/${login}/${slug}/actions/variables`, {
+          method: 'POST',
+          body: { name: 'PUBLIC_SITE_URL', value: `https://${slug}.kantan-hp.fyi` },
+        });
+      }
+
+      // 8. Point the editor at this repo + the panel's shared auth proxy.
       //    This commit is also the first push, which triggers the deploy.
       const current = b64decode(cfg.content);
       let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
@@ -737,17 +752,12 @@ async function provision(request, env) {
       });
       ok('decap-configured', 'first deploy triggered');
 
-      // 7b. Branded address: the site's canonical URL (RSS/sitemap) must be the
-      //     branded origin from the FIRST build, so the repo variable is set
-      //     before the deploy-triggering commit above.
+      // 8b. Branded address: attach the domain to the user's Pages project
+      //     (user token) + create the proxied CNAME in our zone (operator
+      //     token). The attachment starts "pending" and validates once the
+      //     CNAME resolves. This does not need to precede the first build (the
+      //     repo variable above already set the canonical URL for it).
       if (branded) {
-        await ghJson(ghT, `/repos/${login}/${slug}/actions/variables`, {
-          method: 'POST',
-          body: { name: 'PUBLIC_SITE_URL', value: `https://${slug}.kantan-hp.fyi` },
-        });
-        // Attach the domain to the user's Pages project (user token) + create
-        // the proxied CNAME in our zone (operator token). The attachment starts
-        // "pending" and validates once the CNAME resolves.
         await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains`, {
           method: 'POST',
           body: { name: `${slug}.kantan-hp.fyi` },
@@ -761,7 +771,7 @@ async function provision(request, env) {
         ok('branded-domain', `https://${slug}.kantan-hp.fyi`);
       }
 
-      // 7c. Set the site title to the site name — the template defaults to "Kantan HP".
+      // 8c. Set the site title to the site name — the template defaults to "Kantan HP".
       // Best-effort: cosmetic, so a template layout change never fails provisioning.
       let titled = false;
       try {
@@ -785,7 +795,7 @@ async function provision(request, env) {
       }
       ok('site-titled', titled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
 
-      // 8. Register the site in D1 (drives the site list and the editor origin
+      // 9. Register the site in D1 (drives the site list and the editor origin
       //    check). Branded sites get the branded canonical origin + deploy_url;
       //    pages.dev-only sites keep origin = pages.dev and deploy_url = NULL.
       const origin = branded ? `https://${slug}.kantan-hp.fyi` : pagesDevUrl;
@@ -812,7 +822,7 @@ async function provision(request, env) {
               repo: `https://github.com/${login}/${slug}`,
               url: origin,
               admin: `${origin}/admin`,
-              deployUrl: pagesDevUrl,
+              pagesDevUrl,
               note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
             },
           },

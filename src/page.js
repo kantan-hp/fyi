@@ -446,10 +446,13 @@ export function appPage({ email, sites, hasSites }) {
         (data.steps || []).forEach(addStep);
         if (data.ok) {
           setBar('100%', 'ok');
+          const meanwhile = (data.site.pagesDevUrl && data.site.pagesDevUrl !== data.site.url)
+            ? '<br>Meanwhile it\'s live at: <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
+            : '';
           $('result').innerHTML =
             '<div class="result"><strong>Your site is being built.</strong><br>' +
             'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
-            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a><br>' +
+            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a>' + meanwhile + '<br>' +
             'Editor: <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
             '<span class="muted">' + data.site.note + '</span></div>';
           setTimeout(() => { location.href = '/app'; }, 2500);

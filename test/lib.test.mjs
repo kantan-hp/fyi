@@ -9,7 +9,6 @@ import {
   canonicalOrigin,
   isReservedSlug,
   slugLengthOk,
-  canonicalizeEmail,
   b64encode,
   b64decode,
   normalizeEmail,
@@ -86,13 +85,6 @@ test('slugLengthOk', () => {
   assert.equal(slugLengthOk('abcd'), true);
   assert.equal(slugLengthOk('a'.repeat(32)), true);
   assert.equal(slugLengthOk('a'.repeat(33)), false);
-});
-
-test('canonicalizeEmail', () => {
-  assert.equal(canonicalizeEmail('V.IC.T+tag@gmail.com'), 'vict@gmail.com');
-  assert.equal(canonicalizeEmail('foo.bar@googlemail.com'), 'foobar@googlemail.com');
-  assert.equal(canonicalizeEmail('foo+tag@example.com'), 'foo+tag@example.com');
-  assert.equal(canonicalizeEmail('User@Example.COM'), 'user@example.com');
 });
 
 test('canonicalOrigin', () => {

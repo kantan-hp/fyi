@@ -117,6 +117,8 @@ const RESERVED_SLUGS = new Set([
   'docs', 'status', 'blog', 'dashboard', 'help', 'cdn', 'assets', 'files',
   'static', 'graphql', 'registry', 'security', 'abuse', 'about', 'terms',
   'privacy', 'billing', 'events', 'explore', 'api-kantan', 'kantan-api',
+  // common typos of the kantan brand (case handled separately via includes)
+  'kanntan', 'kantaan', 'kanta-hp', 'kantanhp', 'kanta-hp-fyi',
 ]);
 
 /**
@@ -138,19 +140,6 @@ export function slugLengthOk(slug) {
 /** Lowercase + trim an email address for storage/lookup. */
 export function normalizeEmail(input) {
   return String(input || '').trim().toLowerCase();
-}
-
-/**
- * Canonicalize an email for rate-limit keys: trim + lowercase, and for Gmail
- * addresses also collapse the local part (Gmail ignores dots and +tags).
- */
-export function canonicalizeEmail(email) {
-  let normalized = normalizeEmail(email);
-  const [local, domain] = normalized.split('@');
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    normalized = `${local.replace(/\./g, '').split('+')[0]}@${domain}`;
-  }
-  return normalized;
 }
 
 export function isValidEmail(email) {
