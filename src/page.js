@@ -593,11 +593,15 @@ export function appPage({ email, sites, hasSites }) {
 
       // If the page is restored from the back/forward cache (refresh/back while
       // a check was mid-flight), the DOM comes back with the cell stuck on
-      // "Checking…" and the script does not re-run. Reset every cell to check.
+      // "Checking…" and the script does not re-run. Reset only cells that are
+      // still pending — completed results (yes/no/N-A + Update button) survive
+      // the restore untouched.
       window.addEventListener('pageshow', (e) => {
         if (!e.persisted) return;
         document.querySelectorAll('[data-upg]').forEach((cell) => {
-          renderCheckButton(cell.getAttribute('data-upg'), null);
+          if (cell.textContent.includes('Checking…')) {
+            renderCheckButton(cell.getAttribute('data-upg'), null);
+          }
         });
       });
 
