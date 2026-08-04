@@ -14,3 +14,8 @@ SESSION_SECRET=
 # without it, the panel shows the login link on screen instead of emailing it.
 RESEND_API_KEY=
 EMAIL_FROM=noreply@kantan-hp.fyi
+
+# Operator DNS token for branded *.kantan-hp.fyi subdomains (Zone: DNS: Edit,
+# scoped to the kantan-hp.fyi zone only). Required only when the wizard's
+# branded-address checkbox is used; absent → branded flow fails fast.
+CF_ZONE_DNS_TOKEN=

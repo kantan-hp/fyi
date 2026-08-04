@@ -6,6 +6,10 @@ import {
   verifyPayload,
   parseCookies,
   isAllowedSiteOrigin,
+  canonicalOrigin,
+  isReservedSlug,
+  slugLengthOk,
+  canonicalizeEmail,
   b64encode,
   b64decode,
   normalizeEmail,
@@ -56,6 +60,43 @@ test('isAllowedSiteOrigin', () => {
   assert.equal(isAllowedSiteOrigin('http://my-blog.pages.dev'), false);
   assert.equal(isAllowedSiteOrigin('https://evil.com'), false);
   assert.equal(isAllowedSiteOrigin('not a url'), false);
+});
+
+test('isAllowedSiteOrigin accepts branded kantan-hp.fyi origins', () => {
+  assert.equal(isAllowedSiteOrigin('https://my-blog.kantan-hp.fyi'), true);
+  assert.equal(isAllowedSiteOrigin('http://my-blog.kantan-hp.fyi'), false);
+  assert.equal(isAllowedSiteOrigin('https://my-blog.evil-kantan-hp.fyi'), false);
+  assert.equal(isAllowedSiteOrigin('https://kantan-hp.fyi.evil.com'), false);
+  assert.equal(isAllowedSiteOrigin('https://evil.com'), false);
+});
+
+test('isReservedSlug', () => {
+  assert.equal(isReservedSlug('kantan-login'), true);
+  assert.equal(isReservedSlug('my-kantan-blog'), true);
+  assert.equal(isReservedSlug('pay-kantan'), true);
+  assert.equal(isReservedSlug('alice'), false);
+  assert.equal(isReservedSlug('my-blog'), false);
+  assert.equal(isReservedSlug('app'), true);
+  assert.equal(isReservedSlug('KANTAN-API'), true);
+});
+
+test('slugLengthOk', () => {
+  assert.equal(slugLengthOk('ab'), false);
+  assert.equal(slugLengthOk('abc'), false);
+  assert.equal(slugLengthOk('abcd'), true);
+  assert.equal(slugLengthOk('a'.repeat(32)), true);
+  assert.equal(slugLengthOk('a'.repeat(33)), false);
+});
+
+test('canonicalizeEmail', () => {
+  assert.equal(canonicalizeEmail('V.IC.T+tag@gmail.com'), 'vict@gmail.com');
+  assert.equal(canonicalizeEmail('foo.bar@googlemail.com'), 'foobar@googlemail.com');
+  assert.equal(canonicalizeEmail('foo+tag@example.com'), 'foo+tag@example.com');
+  assert.equal(canonicalizeEmail('User@Example.COM'), 'user@example.com');
+});
+
+test('canonicalOrigin', () => {
+  assert.equal(canonicalOrigin('my-blog'), 'https://my-blog.kantan-hp.fyi');
 });
 
 test('b64 roundtrip with unicode', () => {

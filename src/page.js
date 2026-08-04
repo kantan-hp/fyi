@@ -290,6 +290,10 @@ export function appPage({ email, sites, hasSites }) {
           <input type="checkbox" id="site-public" /> Make this repository public
           <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
         </label>
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+          <input type="checkbox" id="site-branded" checked /> Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
+          <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+        </label>
         <button class="btn" id="create" disabled>Create my website</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
@@ -421,6 +425,7 @@ export function appPage({ email, sites, hasSites }) {
               siteName: $('site-name').value,
               cfToken, cfAccountId,
               public: $('site-public').checked,
+              branded: $('site-branded').checked,
             }),
           });
           data = await r.json();

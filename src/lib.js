@@ -87,19 +87,70 @@ export function parseCookies(header) {
   return out;
 }
 
-/** True only for https origins on pages.dev (provisioned sites' default domain). */
+/** Branded subdomain suffix for every provisioned site's canonical origin. */
+export const BRANDED_SUFFIX = '.kantan-hp.fyi';
+
+/** Default Cloudflare Pages domain suffix, kept as the deploy_url. */
+export const PAGES_SUFFIX = '.pages.dev';
+
+/** True for https origins on pages.dev or kantan-hp.fyi (provisioned sites). */
 export function isAllowedSiteOrigin(origin) {
   try {
     const u = new URL(origin);
-    return u.protocol === 'https:' && u.hostname.endsWith('.pages.dev');
+    return (
+      u.protocol === 'https:' &&
+      (u.hostname.endsWith(PAGES_SUFFIX) || u.hostname.endsWith(BRANDED_SUFFIX))
+    );
   } catch {
     return false;
   }
 }
 
+/** The canonical origin a provisioned site is reachable at: https://<slug>.kantan-hp.fyi. */
+export function canonicalOrigin(slug) {
+  return `https://${slug}${BRANDED_SUFFIX}`;
+}
+
+/** Panel paths and brand-ish words no one may claim as a subdomain slug. */
+const RESERVED_SLUGS = new Set([
+  'app', 'api', 'oauth', 'admin', 'mail', 'www', 'support', 'login', 'account',
+  'docs', 'status', 'blog', 'dashboard', 'help', 'cdn', 'assets', 'files',
+  'static', 'graphql', 'registry', 'security', 'abuse', 'about', 'terms',
+  'privacy', 'billing', 'events', 'explore', 'api-kantan', 'kantan-api',
+]);
+
+/**
+ * Pure denylist check for a subdomain slug. True when the slug embeds the
+ * `kantan` brand (case-insensitive, so `kantan-hp` is caught too) or is one of
+ * the hardcoded reserved panel paths. The D1 reserved_slugs table (seeded by
+ * migration 0003) is an additional, separate check done in index.js.
+ */
+export function isReservedSlug(slug) {
+  const s = String(slug || '').toLowerCase();
+  return s.includes('kantan') || RESERVED_SLUGS.has(s);
+}
+
+/** Subdomain slugs must be 4–32 chars. */
+export function slugLengthOk(slug) {
+  return slug.length >= 4 && slug.length <= 32;
+}
+
 /** Lowercase + trim an email address for storage/lookup. */
 export function normalizeEmail(input) {
   return String(input || '').trim().toLowerCase();
+}
+
+/**
+ * Canonicalize an email for rate-limit keys: trim + lowercase, and for Gmail
+ * addresses also collapse the local part (Gmail ignores dots and +tags).
+ */
+export function canonicalizeEmail(email) {
+  let normalized = normalizeEmail(email);
+  const [local, domain] = normalized.split('@');
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    normalized = `${local.replace(/\./g, '').split('+')[0]}@${domain}`;
+  }
+  return normalized;
 }
 
 export function isValidEmail(email) {
