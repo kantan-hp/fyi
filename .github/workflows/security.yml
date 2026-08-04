@@ -13,6 +13,8 @@ on:
 
 jobs:
   security:
+    permissions:
+      contents: read
     uses: kantan-hp/.github/.github/workflows/security.yml@main
     with:
       gitleaks: true
