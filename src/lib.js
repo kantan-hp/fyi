@@ -281,3 +281,21 @@ export function detectMajorBumps({ fromPackageJson, toPackageJson, fromAdminHtml
   }
   return bumps;
 }
+
+/**
+ * Map a siteVersionStatus result to the panel's deterministic upgrade state.
+ * `yes` only when every gate passes (clean, no collisions, template CI green,
+ * newer version); `no` when clean and already current; `N/A` for everything
+ * else with a specific reason. Throwing reads (unreadable repo) are handled by
+ * the endpoint, not here.
+ */
+export function upgradeState(status) {
+  if (!status) return { state: 'N/A', reason: 'unreadable' };
+  if (status.needsBaseline) return { state: 'N/A', reason: 'legacy' };
+  if (status.upToDate) return { state: 'no', reason: null };
+  if (status.fit === 'dirty') return { state: 'N/A', reason: 'dirty' };
+  if (status.collisions && status.collisions.length) return { state: 'N/A', reason: 'collision' };
+  if (status.ciGreen === false) return { state: 'N/A', reason: 'ci' };
+  if (status.from && status.to && status.from !== status.to) return { state: 'yes', reason: null };
+  return { state: 'no', reason: null };
+}

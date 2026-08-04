@@ -12,6 +12,7 @@ import {
   astroMajorOf,
   sveltiaMajorOf,
   detectMajorBumps,
+  upgradeState,
 } from '../src/lib.js';
 
 test('isUserDataPath covers the user data contract', () => {
@@ -192,4 +193,30 @@ test('detectMajorBumps empty when majors unchanged', () => {
     toAdminHtml: '@sveltia/cms@0.180.0',
   });
   assert.deepEqual(bumps, []);
+});
+
+test('upgradeState: deterministic yes only when every gate passes', () => {
+  assert.deepEqual(
+    upgradeState({ fit: 'clean', collisions: [], ciGreen: true, from: 'a', to: 'b' }),
+    { state: 'yes', reason: null },
+  );
+});
+
+test('upgradeState: no when clean and current', () => {
+  assert.deepEqual(
+    upgradeState({ fit: 'clean', collisions: [], ciGreen: true, from: 'a', to: 'a' }),
+    { state: 'no', reason: null },
+  );
+});
+
+test('upgradeState: upToDate short-circuit is no', () => {
+  assert.deepEqual(upgradeState({ upToDate: true }), { state: 'no', reason: null });
+});
+
+test('upgradeState: N/A catch-all reasons', () => {
+  assert.deepEqual(upgradeState({ needsBaseline: true }), { state: 'N/A', reason: 'legacy' });
+  assert.deepEqual(upgradeState({ fit: 'dirty' }), { state: 'N/A', reason: 'dirty' });
+  assert.deepEqual(upgradeState({ fit: 'clean', collisions: ['src/components/X.astro'] }), { state: 'N/A', reason: 'collision' });
+  assert.deepEqual(upgradeState({ fit: 'clean', collisions: [], ciGreen: false, from: 'a', to: 'b' }), { state: 'N/A', reason: 'ci' });
+  assert.deepEqual(upgradeState(null), { state: 'N/A', reason: 'unreadable' });
 });

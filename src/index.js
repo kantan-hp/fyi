@@ -37,6 +37,7 @@ import {
   treeToBlobMap,
   reinjectConfigBackend,
   detectMajorBumps,
+  upgradeState,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 
@@ -268,28 +269,14 @@ async function appRoute(request, env) {
   const session = await getSession(request, env);
   if (!session) return redirect('/login');
   const sites = await getSitesByEmail(env, session.sub);
-  let currentSha = null;
-  try {
-    currentSha = await templateMainSha(env);
-  } catch {
-    currentSha = null;
-  }
-  const withBadges = sites.map((s) => ({ ...s, badge: versionBadge(s, currentSha) }));
-  return html(appPage({ email: session.sub, sites: withBadges, hasSites: sites.length > 0 }));
+  return html(appPage({ email: session.sub, sites, hasSites: sites.length > 0 }));
 }
 
 async function listSites(request, env) {
   const session = await getSession(request, env);
   if (!session) return json({ error: 'not logged in' }, 401);
   const sites = await getSitesByEmail(env, session.sub);
-  let currentSha = null;
-  try {
-    currentSha = await templateMainSha(env);
-  } catch {
-    currentSha = null;
-  }
-  const withBadges = sites.map((s) => ({ ...s, badge: versionBadge(s, currentSha) }));
-  return json({ sites: withBadges });
+  return json({ sites });
 }
 
 async function wizardMe(request, env) {
@@ -809,16 +796,6 @@ async function siteVersionStatus(env, token, site) {
   return result;
 }
 
-// Badge helper shared by appRoute / listSites. Fitness (blocked-when-dirty) is
-// computed on the check endpoint, since reading a private site repo needs a
-// short-lived user token the panel doesn't store (zero-knowledge).
-function versionBadge(site, currentSha) {
-  if (!site.template_version) return { key: 'baseline', label: 'Baseline needed' };
-  if (!currentSha) return { key: 'unknown', label: 'Version unknown' };
-  if (site.template_version === currentSha) return { key: 'uptodate', label: 'Up to date' };
-  return { key: 'update', label: 'Update available' };
-}
-
 async function siteUpdateCheck(request, env) {
   const session = await getSession(request, env);
   if (!session) return json({ error: 'not logged in' }, 401);
@@ -830,9 +807,21 @@ async function siteUpdateCheck(request, env) {
   if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
   try {
     const status = await siteVersionStatus(env, wizard.t, site);
-    return json(status);
+    const up = upgradeState(status);
+    return json({
+      upgradeable: up.state,
+      reason: up.reason,
+      drifted: status.drifted,
+      collisions: status.collisions,
+      changes: status.changes,
+      majorBumps: status.majorBumps,
+      from: status.from,
+      to: status.to,
+    });
   } catch (err) {
-    return json({ error: `Could not check for updates: ${String((err && err.message) || err)}` }, 502);
+    // A failed site-repo read (404/403 even with a token) is a catch-all N/A,
+    // not a server error — the repo is private/deleted or the token can't see it.
+    return json({ upgradeable: 'N/A', reason: 'unreadable', error: String((err && err.message) || err) }, 200);
   }
 }
 
