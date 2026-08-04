@@ -235,9 +235,12 @@ export function reinjectConfigBackend(templateConfigYml, siteConfigYml) {
   return out;
 }
 
-const MAJOR_RE = /^v?(\d+)/;
+// Matches the major in a bare version or a common semver range/comparator
+// (^7.1.6, ~7.0.0, >=7.0.0, v2.0, 7.x …). Grabbing the first digit sequence
+// after any comparator prefix is enough for major-bump detection.
+const MAJOR_RE = /(?:^|[^\d.])v?(\d+)/;
 
-/** The major of a semver string, or null. */
+/** The major of a semver string or range, or null. */
 export function majorOf(version) {
   const m = MAJOR_RE.exec(String(version || ''));
   return m ? Number(m[1]) : null;

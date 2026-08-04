@@ -162,6 +162,17 @@ test('majorOf / astroMajorOf / sveltiaMajorOf', () => {
   assert.equal(sveltiaMajorOf('no cms here'), null);
 });
 
+test('majorOf parses semver ranges and comparators', () => {
+  assert.equal(majorOf('^7.1.6'), 7);
+  assert.equal(majorOf('~7.0.0'), 7);
+  assert.equal(majorOf('>=7.0.0'), 7);
+  assert.equal(majorOf('^7'), 7);
+  assert.equal(majorOf('7.x'), 7);
+  assert.equal(majorOf('*'), null);
+  assert.equal(majorOf('latest'), null);
+  assert.equal(majorOf('workspace:*'), null);
+});
+
 test('detectMajorBumps finds astro and sveltia bumps', () => {
   const bumps = detectMajorBumps({
     fromPackageJson: '{"dependencies":{"astro":"6.0.0"}}',

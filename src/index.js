@@ -34,6 +34,7 @@ import {
   CONFIG_YML_PATH,
   classifyFitness,
   diffCoreTrees,
+  treeToBlobMap,
   reinjectConfigBackend,
   detectMajorBumps,
 } from './lib.js';
@@ -785,6 +786,13 @@ async function siteVersionStatus(env, token, site) {
 
   // Only green templates are offered; major bumps need explicit confirm.
   result.changes = diffCoreTrees({ fromTree: tplFromTree, toTree: tplToTree, fromConfigYml: fromConfig, toConfigYml: toConfig });
+  // A template-add that lands on a path the user already added would overwrite
+  // their file (pure additions are tolerated as clean, but the update must not
+  // clobber them). Surface those collisions and block instead.
+  const siteBlobMap = treeToBlobMap(siteTree);
+  result.collisions = result.changes.filter(
+    (c) => c.status === 'added' && c.path in siteBlobMap,
+  );
   result.ciGreen = await templateCiGreen(token, tplOwner, tplName);
   const [pkgFrom, pkgTo, adminFrom, adminTo] = await Promise.all([
     fileContentBase64(token, tplOwner, tplName, 'package.json', recorded),
@@ -845,6 +853,13 @@ async function siteUpdate(request, env) {
     if (status.upToDate) return json({ error: 'This site is already up to date.' }, 409);
     if (status.fit === 'dirty') {
       return json({ blocked: 'dirty', drifted: status.drifted, error: 'Update blocked — your site has core files that differ from the template.' }, 409);
+    }
+    if (status.collisions && status.collisions.length) {
+      return json({
+        blocked: 'collision',
+        collisions: status.collisions.map((c) => c.path),
+        error: 'Update blocked — the template now adds files that already exist in your site. The update would overwrite them.',
+      }, 409);
     }
     if (!status.ciGreen) return json({ blocked: 'template-ci', error: 'Update blocked — the template is not passing its own CI right now.' }, 409);
     if (status.majorBumps.length && !confirmMajor) {
@@ -933,7 +948,17 @@ async function siteUpdate(request, env) {
         body: { sha: commit.sha, force: false },
       });
     } catch (err) {
-      await setAnchor(from).catch(() => {});
+      // The PATCH may have applied server-side even though the response was
+      // lost (connection drop). Verify the actual ref before compensating, so
+      // we never leave the repo ahead of the recorded anchor.
+      let applied = false;
+      try {
+        const ref = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/refs/heads/${siteInfo.defaultBranch}`);
+        applied = ref.object.sha === commit.sha;
+      } catch {
+        applied = false;
+      }
+      if (!applied) await setAnchor(from).catch(() => {});
       throw err;
     }
 
