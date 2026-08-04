@@ -196,7 +196,7 @@ export function appPage({ email, sites, hasSites }) {
 
       ${table}
 
-      <section class="card" id="wizard${wizardHidden}">
+      <section class="card${wizardHidden}" id="wizard">
         <h2><span class="num">1</span> Connect GitHub</h2>
         <p>Your site lives in a new repository in your GitHub account. We ask for
            <code>repo</code> access so we can create it and set it up for you.</p>
@@ -259,9 +259,9 @@ export function appPage({ email, sites, hasSites }) {
       const wizard = $('wizard');
       const newSite = $('new-site');
       if (newSite) newSite.onclick = () => {
-        wizard.classList.remove('hidden');
-        newSite.classList.add('hidden');
-        wizard.scrollIntoView({ behavior: 'smooth' });
+        const nowHidden = wizard.classList.toggle('hidden');
+        newSite.classList.toggle('secondary', nowHidden);
+        if (!nowHidden) wizard.scrollIntoView({ behavior: 'smooth' });
       };
 
       function refreshCreateButton() {
