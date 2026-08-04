@@ -337,14 +337,24 @@ async function oauthCallback(request, env) {
   const state = await verifyPayload(env.SESSION_SECRET, url.searchParams.get('state'));
   const cookies = parseCookies(request.headers.get('cookie'));
   const clearNonce = cookie(NONCE_COOKIE, '', { secure: isHttps(request), maxAge: 0 });
+  const toApp = (headers) => {
+    headers.append('set-cookie', clearNonce);
+    return new Response(null, { status: 302, headers });
+  };
   if (!state || !state.nonce || cookies[NONCE_COOKIE] !== state.nonce) {
     return html(messagePage('Invalid OAuth state', 'Please go back and try connecting GitHub again.'), 403);
   }
-  if (!code) return text('Missing authorization code from GitHub.', 400);
+  if (!code) {
+    // The user cancelled on GitHub (or the flow errored before a code). Send
+    // them back to /app so the client can reset the site's pending check state
+    // instead of dead-ending on a bare text page (which left the panel stuck on
+    // "Checking…" and looped back into /auth/github).
+    return toApp(new Headers({ location: '/app' }));
+  }
 
   const result = await exchangeCode(env, code);
   if (result.error) {
-    return text(`GitHub OAuth failed: ${result.error_description || result.error}`, 401);
+    return toApp(new Headers({ location: '/app' }));
   }
 
   if (state.flow === 'wizard') {
