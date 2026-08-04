@@ -31,6 +31,11 @@ import {
   normalizeEmail,
   isValidEmail,
   randomHex,
+  CONFIG_YML_PATH,
+  classifyFitness,
+  diffCoreTrees,
+  reinjectConfigBackend,
+  detectMajorBumps,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 
@@ -65,6 +70,9 @@ export default {
       if (pathname === '/api/logout') return logout(request);
       if (pathname === '/api/me') return apiMe(request, env);
       if (pathname === '/api/sites') return listSites(request, env);
+      if (pathname === '/api/sites/check') return siteUpdateCheck(request, env);
+      if (pathname === '/api/sites/update') return siteUpdate(request, env);
+      if (pathname === '/api/sites/baseline') return siteBaseline(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
       if (pathname === '/api/wizard/logout') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request);
@@ -259,13 +267,28 @@ async function appRoute(request, env) {
   const session = await getSession(request, env);
   if (!session) return redirect('/login');
   const sites = await getSitesByEmail(env, session.sub);
-  return html(appPage({ email: session.sub, sites, hasSites: sites.length > 0 }));
+  let currentSha = null;
+  try {
+    currentSha = await templateMainSha(env);
+  } catch {
+    currentSha = null;
+  }
+  const withBadges = sites.map((s) => ({ ...s, badge: versionBadge(s, currentSha) }));
+  return html(appPage({ email: session.sub, sites: withBadges, hasSites: sites.length > 0 }));
 }
 
 async function listSites(request, env) {
   const session = await getSession(request, env);
   if (!session) return json({ error: 'not logged in' }, 401);
-  return json({ sites: await getSitesByEmail(env, session.sub) });
+  const sites = await getSitesByEmail(env, session.sub);
+  let currentSha = null;
+  try {
+    currentSha = await templateMainSha(env);
+  } catch {
+    currentSha = null;
+  }
+  const withBadges = sites.map((s) => ({ ...s, badge: versionBadge(s, currentSha) }));
+  return json({ sites: withBadges });
 }
 
 async function wizardMe(request, env) {
@@ -422,12 +445,13 @@ function renderDecapHandshake(content) {
 // Cloudflare + GitHub API helpers
 
 function ghHeaders(token) {
-  return {
-    authorization: `Bearer ${token}`,
+  const headers = {
     accept: 'application/vnd.github+json',
     'user-agent': 'kantan-panel',
     'x-github-api-version': '2022-11-28',
   };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
 }
 
 async function gh(token, path, { method = 'GET', body } = {}) {
@@ -552,6 +576,10 @@ async function provision(request, env) {
 
     // 3. Generate the repo from the template
     const [tplOwner, tplName] = (env.TEMPLATE_REPO || 'kantan-hp/template').split('/');
+    // Stamp the exact template revision the site's core is provisioned from.
+    const tplRef = await gh(ghT, `/repos/${tplOwner}/${tplName}/git/ref/heads/main`);
+    const templateVersion = tplRef.ok ? (await tplRef.json()).object.sha : null;
+    if (!templateVersion) throw new Error('Could not read the template version — retry in a moment.');
     await ghJson(ghT, `/repos/${tplOwner}/${tplName}/generate`, {
       method: 'POST',
       body: {
@@ -623,9 +651,9 @@ async function provision(request, env) {
     // 8. Register the site in D1 (drives the site list and the editor origin check)
     const origin = `https://${slug}.pages.dev`;
     await env.DB.prepare(
-      'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-      .bind(origin, email, login, `${login}/${slug}`, slug, accountId, new Date().toISOString())
+      .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, new Date().toISOString())
       .run();
     ok('site-registered', origin);
 
@@ -654,5 +682,291 @@ async function provision(request, env) {
   } catch (err) {
     fail('error', String((err && err.message) || err));
     return json({ ok: false, error: String((err && err.message) || err), steps }, 400);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Site versioning — fitness-gated updates
+//
+// Each site carries a template_version (template `main` SHA at provision) in
+// D1. The fitness gate compares the site's core tree to template@recorded
+// version, blocks updates when dirty, and offers only green template revisions.
+// All reads of the user's private repo use the short-lived wizard token; the
+// panel never stores a user token (zero-knowledge). Updates are user-initiated.
+
+async function templateParts(env) {
+  const [owner, name] = (env.TEMPLATE_REPO || 'kantan-hp/template').split('/');
+  return { owner, name };
+}
+
+/** Current template main SHA, cached in KV to keep GitHub read traffic low. */
+async function templateMainSha(env) {
+  const cacheKey = 'template:main-sha';
+  const cached = await env.KV.get(cacheKey).catch(() => null);
+  if (cached) return cached;
+  const { owner, name } = templateParts(env);
+  const ref = await ghJson(null, `/repos/${owner}/${name}/git/ref/heads/main`);
+  const sha = ref.object.sha;
+  await env.KV.put(cacheKey, sha, { expirationTtl: 300 }).catch(() => {});
+  return sha;
+}
+
+/** Recursive tree of a repo at a commit sha, as [{path, type, sha, mode}]. */
+async function repoTree(token, owner, name, sha) {
+  const data = await ghJson(token, `/repos/${owner}/${name}/git/trees/${sha}?recursive=1`);
+  return data.tree || [];
+}
+
+/** Base64 content of a file at a ref via the contents API (public template reads are token-less). */
+async function fileContentBase64(token, owner, name, path, ref) {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  const data = await ghJson(token, `/repos/${owner}/${name}/contents/${encoded}?ref=${ref}`);
+  return data.content || null;
+}
+
+/** Resolve a site's repo to {owner, name, defaultBranch, headSha}. */
+async function siteRepoInfo(token, repo) {
+  const [owner, name] = repo.split('/');
+  const info = await ghJson(token, `/repos/${owner}/${name}`);
+  const ref = await ghJson(token, `/repos/${owner}/${name}/git/ref/heads/${info.default_branch}`);
+  return { owner, name, defaultBranch: info.default_branch, headSha: ref.object.sha };
+}
+
+/** True when the template's own CI (npm run check + build) is green on main. */
+async function templateCiGreen(token, owner, name) {
+  try {
+    const runs = await ghJson(token, `/repos/${owner}/${name}/actions/workflows/ci.yml/runs?branch=main&per_page=1`);
+    const latest = runs.workflow_runs && runs.workflow_runs[0];
+    return !!latest && latest.status === 'completed' && latest.conclusion === 'success';
+  } catch {
+    return false;
+  }
+}
+
+/** Full fitness + update-readiness check for a site. Requires a wizard token to read the site repo. */
+async function siteVersionStatus(env, token, site) {
+  const [tplOwner, tplName] = templateParts(env);
+  const recorded = site.template_version || null;
+  const current = await templateMainSha(env);
+  const result = { from: recorded, to: current };
+
+  if (!recorded) {
+    result.needsBaseline = true;
+    return result;
+  }
+  if (recorded === current) {
+    result.upToDate = true;
+    return result;
+  }
+
+  // Site core tree at its HEAD + the template trees we compare against.
+  const siteInfo = await siteRepoInfo(token, site.repo);
+  const [siteTree, tplFromTree, tplToTree] = await Promise.all([
+    repoTree(token, siteInfo.owner, siteInfo.name, siteInfo.headSha),
+    repoTree(token, tplOwner, tplName, recorded),
+    repoTree(token, tplOwner, tplName, current),
+  ]);
+
+  const [siteCfgB64, fromCfgB64, toCfgB64] = await Promise.all([
+    fileContentBase64(token, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
+    fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, recorded),
+    fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, current),
+  ]);
+  const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
+  const fromConfig = fromCfgB64 ? b64decode(fromCfgB64) : '';
+  const toConfig = toCfgB64 ? b64decode(toCfgB64) : '';
+
+  const fit = classifyFitness({ templateTree: tplFromTree, siteTree, templateConfigYml: fromConfig, siteConfigYml: siteConfig });
+  result.fit = fit.clean ? 'clean' : 'dirty';
+  result.drifted = fit.drifted;
+
+  if (!fit.clean) return result;
+
+  // Only green templates are offered; major bumps need explicit confirm.
+  result.changes = diffCoreTrees({ fromTree: tplFromTree, toTree: tplToTree, fromConfigYml: fromConfig, toConfigYml: toConfig });
+  result.ciGreen = await templateCiGreen(token, tplOwner, tplName);
+  const [pkgFrom, pkgTo, adminFrom, adminTo] = await Promise.all([
+    fileContentBase64(token, tplOwner, tplName, 'package.json', recorded),
+    fileContentBase64(token, tplOwner, tplName, 'package.json', current),
+    fileContentBase64(token, tplOwner, tplName, 'public/admin/index.html', recorded),
+    fileContentBase64(token, tplOwner, tplName, 'public/admin/index.html', current),
+  ]);
+  result.majorBumps = detectMajorBumps({
+    fromPackageJson: pkgFrom && b64decode(pkgFrom),
+    toPackageJson: pkgTo && b64decode(pkgTo),
+    fromAdminHtml: adminFrom && b64decode(adminFrom),
+    toAdminHtml: adminTo && b64decode(adminTo),
+  });
+  return result;
+}
+
+// Badge helper shared by appRoute / listSites. Fitness (blocked-when-dirty) is
+// computed on the check endpoint, since reading a private site repo needs a
+// short-lived user token the panel doesn't store (zero-knowledge).
+function versionBadge(site, currentSha) {
+  if (!site.template_version) return { key: 'baseline', label: 'Baseline needed' };
+  if (!currentSha) return { key: 'unknown', label: 'Version unknown' };
+  if (site.template_version === currentSha) return { key: 'uptodate', label: 'Up to date' };
+  return { key: 'update', label: 'Update available' };
+}
+
+async function siteUpdateCheck(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub to check for updates.', connectUrl: '/auth/github' }, 401);
+  const { origin } = await request.json().catch(() => ({}));
+  const site = await getSiteByOrigin(env, origin);
+  if (!site) return json({ error: 'unknown site' }, 404);
+  if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
+  try {
+    const status = await siteVersionStatus(env, wizard.t, site);
+    return json(status);
+  } catch (err) {
+    return json({ error: `Could not check for updates: ${String((err && err.message) || err)}` }, 502);
+  }
+}
+
+async function siteUpdate(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub to update.', connectUrl: '/auth/github' }, 401);
+  const { origin, confirmMajor = false } = await request.json().catch(() => ({}));
+  const site = await getSiteByOrigin(env, origin);
+  if (!site) return json({ error: 'unknown site' }, 404);
+  if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
+
+  try {
+    // Recompute everything server-side; never trust the client's read of the state.
+    const status = await siteVersionStatus(env, wizard.t, site);
+    if (status.needsBaseline) return json({ error: 'Set a baseline before updating.' }, 409);
+    if (status.upToDate) return json({ error: 'This site is already up to date.' }, 409);
+    if (status.fit === 'dirty') {
+      return json({ blocked: 'dirty', drifted: status.drifted, error: 'Update blocked — your site has core files that differ from the template.' }, 409);
+    }
+    if (!status.ciGreen) return json({ blocked: 'template-ci', error: 'Update blocked — the template is not passing its own CI right now.' }, 409);
+    if (status.majorBumps.length && !confirmMajor) {
+      return json({ blocked: 'major', majorBumps: status.majorBumps, error: 'This update bumps a major version. Confirm to continue.' }, 409);
+    }
+
+    const [tplOwner, tplName] = templateParts(env);
+    const siteInfo = await siteRepoInfo(wizard.t, site.repo);
+    const from = status.from;
+    const to = status.to;
+
+    // Build a single version-bump commit on the site's own default branch.
+    const headCommit = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/commits/${siteInfo.headSha}`);
+    const baseTree = headCommit.tree.sha;
+    const tplToTree = await repoTree(wizard.t, tplOwner, tplName, to);
+    const toBlobMap = {};
+    for (const e of tplToTree) toBlobMap[e.path] = e;
+
+    const [siteCfgB64, toCfgB64] = await Promise.all([
+      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
+      fileContentBase64(wizard.t, tplOwner, tplName, CONFIG_YML_PATH, to),
+    ]);
+    const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
+    const toConfig = toCfgB64 ? b64decode(toCfgB64) : '';
+
+    const treeEntries = [];
+    for (const change of status.changes) {
+      if (change.status === 'deleted') {
+        treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: null });
+        continue;
+      }
+      let contentBase64;
+      if (change.path === CONFIG_YML_PATH) {
+        contentBase64 = b64encode(reinjectConfigBackend(toConfig, siteConfig));
+      } else {
+        contentBase64 = await fileContentBase64(wizard.t, tplOwner, tplName, change.path, to);
+      }
+      if (!contentBase64) continue;
+      const blob = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/blobs`, {
+        method: 'POST',
+        body: { content: contentBase64, encoding: 'base64' },
+      });
+      const mode = (toBlobMap[change.path] && toBlobMap[change.path].mode) || '100644';
+      treeEntries.push({ path: change.path, mode, type: 'blob', sha: blob.sha });
+    }
+
+    const newTree = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/trees`, {
+      method: 'POST',
+      body: { base_tree: baseTree, tree: treeEntries },
+    });
+    const commit = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/commits`, {
+      method: 'POST',
+      body: {
+        message: `chore: update site core to template ${to.slice(0, 7)}`,
+        tree: newTree.sha,
+        parents: [siteInfo.headSha],
+      },
+    });
+    await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/refs/heads/${siteInfo.defaultBranch}`, {
+      method: 'PATCH',
+      body: { sha: commit.sha, force: false },
+    });
+
+    // The core now matches template@to; advance the panel-owned anchor. The site's
+    // deploy.yml rebuilds + redeploys from this push.
+    await env.DB.prepare('UPDATE sites SET template_version = ? WHERE origin = ?').bind(to, origin).run();
+
+    return json({
+      ok: true,
+      from,
+      to,
+      changed: status.changes.length,
+      commit: commit.sha,
+      deployUrl: `https://github.com/${site.repo}/actions`,
+    });
+  } catch (err) {
+    return json({ error: `Update failed: ${String((err && err.message) || err)}` }, 502);
+  }
+}
+
+async function siteBaseline(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub to set a baseline.', connectUrl: '/auth/github' }, 401);
+  const { origin } = await request.json().catch(() => ({}));
+  const site = await getSiteByOrigin(env, origin);
+  if (!site) return json({ error: 'unknown site' }, 404);
+  if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
+
+  try {
+    const current = await templateMainSha(env);
+
+    // Baseline is only accepted when the site's core actually matches the current
+    // template — never silently assumed clean. A dirty baseline is rejected and
+    // the user is pointed at the content-transfer escape hatch.
+    const siteInfo = await siteRepoInfo(wizard.t, site.repo);
+    const { owner: tplOwner, name: tplName } = templateParts(env);
+    const [siteTree, tplTree] = await Promise.all([
+      repoTree(wizard.t, siteInfo.owner, siteInfo.name, siteInfo.headSha),
+      repoTree(wizard.t, tplOwner, tplName, current),
+    ]);
+    const [siteCfgB64, tplCfgB64] = await Promise.all([
+      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
+      fileContentBase64(wizard.t, tplOwner, tplName, CONFIG_YML_PATH, current),
+    ]);
+    const fit = classifyFitness({
+      templateTree: tplTree,
+      siteTree,
+      templateConfigYml: tplCfgB64 ? b64decode(tplCfgB64) : '',
+      siteConfigYml: siteCfgB64 ? b64decode(siteCfgB64) : '',
+    });
+    if (!fit.clean) {
+      return json({
+        ok: false,
+        error: 'Baseline rejected — your site\'s core differs from the current template. Resolve the drift or start fresh and bring your content over.',
+        drifted: fit.drifted,
+      }, 409);
+    }
+
+    await env.DB.prepare('UPDATE sites SET template_version = ? WHERE origin = ?').bind(current, origin).run();
+    return json({ ok: true, templateVersion: current });
+  } catch (err) {
+    return json({ error: `Could not set the baseline: ${String((err && err.message) || err)}` }, 502);
   }
 }
