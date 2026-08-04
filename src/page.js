@@ -42,8 +42,11 @@ input[type="email"], input[type="text"], input[type="password"] {
 code { background: #f0efec; padding: .1rem .3rem; border-radius: 4px; font-size: .85em; }
 ul.steps { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .85rem; }
 ul.steps li { padding: .15rem 0; }
-table.sites { width: 100%; border-collapse: collapse; font-size: .92rem; }
-table.sites th, table.sites td { text-align: left; padding: .6rem .4rem; border-bottom: 1px solid #eee; }
+table.sites { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .92rem; }
+table.sites th, table.sites td { text-align: left; padding: .6rem .4rem; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
+table.sites th:first-child, table.sites td:first-child { width: auto; }
+table.sites th:nth-child(2), table.sites td:nth-child(2) { width: 8rem; }
+table.sites th:last-child, table.sites td:last-child { width: 8rem; }
 table.sites th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #999; }
 .result { margin-top: .75rem; padding: .75rem 1rem; background: #f0f9f2; border: 1px solid #c8e6cf; border-radius: 10px; font-size: .85rem; }
 .pbar { height: 8px; background: #eee; border-radius: 999px; overflow: hidden; margin: .75rem 0 .25rem; display: none; }
@@ -510,10 +513,16 @@ export function appPage({ email, sites, hasSites }) {
       };
 
       // Row click / More info toggles the slide-down. The site link itself keeps
-      // navigating directly (stopPropagation on the anchor).
+      // navigating directly (stopPropagation on the anchor). While open, the
+      // More info button flips to the filled style (same as 'Create another
+      // site').
       const toggleDetail = (origin) => {
         const detail = document.querySelector('[data-detail="' + origin + '"]');
-        if (detail) detail.classList.toggle('hidden');
+        const btn = document.querySelector('[data-more="' + origin + '"]');
+        if (detail) {
+          const nowHidden = detail.classList.toggle('hidden');
+          if (btn) btn.classList.toggle('secondary', nowHidden);
+        }
       };
       document.querySelectorAll('[data-more]').forEach((btn) => {
         btn.onclick = (e) => { e.stopPropagation(); toggleDetail(btn.dataset.more); };
@@ -587,7 +596,11 @@ export function appPage({ email, sites, hasSites }) {
         if (!pending) return;
         localStorage.removeItem('kantan-check-site');
         const detail = document.querySelector('[data-detail="' + pending + '"]');
-        if (detail) detail.classList.remove('hidden');
+        if (detail) {
+          detail.classList.remove('hidden');
+          const btn = document.querySelector('[data-more="' + pending + '"]');
+          if (btn) btn.classList.remove('secondary');
+        }
         runCheck(pending, { fromReturn: true });
       })();
 
