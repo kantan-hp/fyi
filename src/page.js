@@ -59,7 +59,7 @@ table.sites th { font-size: .75rem; text-transform: uppercase; letter-spacing: .
 .badge.update { background: #fff4e0; color: #8a5a00; border: 1px solid #f0d9a8; }
 .badge.baseline { background: #f0efec; color: #555; border: 1px solid #ddd; }
 .badge.dirty { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c1; }
-.btn.info-glyph { width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1rem; font-style: italic; font-weight: 700; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.btn.info-glyph { width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1rem; font-weight: 700; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
 table.sites th:last-child { text-align: right; }
 .ver { font-size: .78rem; color: #999; font-family: ui-monospace, SFMono-Regular, monospace; }
 .ver.sha { word-break: break-all; }
@@ -210,7 +210,7 @@ export function appPage({ email, sites, hasSites }) {
                       <div class="muted" style="font-size:.72rem; margin-top:.1rem">${s.repo}</div>
                     </td>
                     <td class="muted">${new Date(s.created_at).toLocaleDateString()}</td>
-                    <td style="text-align:right; white-space:nowrap"><button class="btn secondary info-glyph" title="More info" aria-label="More info" data-more="${s.origin}"><i>i</i></button></td>
+                    <td style="text-align:right; white-space:nowrap"><button class="btn secondary info-glyph" title="More info" aria-label="More info" data-more="${s.origin}">i</button></td>
                   </tr>
                   <tr class="site-detail hidden" data-detail="${s.origin}">
                     <td colspan="3">
