@@ -543,22 +543,33 @@ export function appPage({ email, sites, hasSites }) {
         }
       };
 
-      const runCheck = async (origin, { fromReturn = false } = {}) => {
+      // Render the idle [check] button for a site's upgradable cell, optionally
+      // with a reason (e.g. a cancelled connect or a failed fetch).
+      const renderCheckButton = (origin, reason) => {
         const upgCell = document.querySelector('[data-upg="' + origin + '"]');
         const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
+        if (reasonCell) reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
+        if (upgCell) {
+          upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+        }
+      };
+
+      const runCheck = async (origin, { fromReturn = false } = {}) => {
+        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
         if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">Checking…</span>';
         const data = await apiPost('/api/sites/check', { origin });
-        if (!data) return; // apiPost already showed an error modal
+        if (!data) {
+          // Fetch failed (network / 500): settle back to the check button instead
+          // of leaving the cell stuck on "Checking…" forever.
+          renderCheckButton(origin, 'Could not check — click check to retry.');
+          return;
+        }
         if (data.connectUrl) {
           if (fromReturn) {
             // We just came back from the OAuth round-trip and still have no
             // token (the user cancelled or the flow failed). Reset to the check
             // state instead of looping back into /auth/github.
-            if (reasonCell) reasonCell.innerHTML = '<span class="err">GitHub connect was cancelled or failed — click check to retry.</span>';
-            if (upgCell) {
-              upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
-              upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
-            }
+            renderCheckButton(origin, 'GitHub connect was cancelled or failed — click check to retry.');
             return;
           }
           // No active GitHub connect: remember which site to re-check on return.
@@ -579,6 +590,16 @@ export function appPage({ email, sites, hasSites }) {
         if (detail) detail.classList.remove('hidden');
         runCheck(pending, { fromReturn: true });
       })();
+
+      // If the page is restored from the back/forward cache (refresh/back while
+      // a check was mid-flight), the DOM comes back with the cell stuck on
+      // "Checking…" and the script does not re-run. Reset every cell to check.
+      window.addEventListener('pageshow', (e) => {
+        if (!e.persisted) return;
+        document.querySelectorAll('[data-upg]').forEach((cell) => {
+          renderCheckButton(cell.getAttribute('data-upg'), null);
+        });
+      });
 
       document.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-check]');
