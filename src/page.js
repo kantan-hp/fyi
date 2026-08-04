@@ -543,12 +543,24 @@ export function appPage({ email, sites, hasSites }) {
         }
       };
 
-      const runCheck = async (origin) => {
+      const runCheck = async (origin, { fromReturn = false } = {}) => {
         const upgCell = document.querySelector('[data-upg="' + origin + '"]');
+        const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
         if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">Checking…</span>';
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) return; // apiPost already showed an error modal
         if (data.connectUrl) {
+          if (fromReturn) {
+            // We just came back from the OAuth round-trip and still have no
+            // token (the user cancelled or the flow failed). Reset to the check
+            // state instead of looping back into /auth/github.
+            if (reasonCell) reasonCell.innerHTML = '<span class="err">GitHub connect was cancelled or failed — click check to retry.</span>';
+            if (upgCell) {
+              upgCell.innerHTML = '<button class="btn secondary" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+              upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
+            }
+            return;
+          }
           // No active GitHub connect: remember which site to re-check on return.
           localStorage.setItem('kantan-check-site', origin);
           location.href = data.connectUrl;
@@ -563,11 +575,9 @@ export function appPage({ email, sites, hasSites }) {
         const pending = localStorage.getItem('kantan-check-site');
         if (!pending) return;
         localStorage.removeItem('kantan-check-site');
-        const row = document.querySelector('[data-origin="' + pending + '"]');
-        if (!row) return;
         const detail = document.querySelector('[data-detail="' + pending + '"]');
         if (detail) detail.classList.remove('hidden');
-        runCheck(pending);
+        runCheck(pending, { fromReturn: true });
       })();
 
       document.addEventListener('click', (e) => {
