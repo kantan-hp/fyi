@@ -503,8 +503,9 @@ export function appPage({ email, sites, hasSites }) {
       };
 
       const upgHtml = (up) => {
-        const cls = up.state === 'yes' ? 'update' : up.state === 'no' ? 'uptodate' : up.state === 'N/A' ? 'dirty' : 'baseline';
-        const label = up.state === 'yes' ? 'Yes' : up.state === 'no' ? 'No' : 'N/A';
+        const s = up && up.upgradeable;
+        const cls = s === 'yes' ? 'update' : s === 'no' ? 'uptodate' : 'dirty';
+        const label = s === 'yes' ? 'Yes' : s === 'no' ? 'No' : 'N/A';
         return '<span class="badge ' + cls + '">' + label + '</span>';
       };
 
