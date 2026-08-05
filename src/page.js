@@ -1,4 +1,5 @@
 // kantan panel pages — vanilla HTML/CSS/JS, no framework. Deliberately minimal.
+import { t, languageSwitcher, stringsFor } from './i18n.js';
 
 const BASE = `:root { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -22,6 +23,7 @@ input[type="email"], input[type="text"], input[type="password"] {
   font: inherit; font-size: .95rem; width: 100%; padding: .6rem .8rem;
   border: 1px solid #d4d2cd; border-radius: 10px; background: #fff;
 }
+select { font: inherit; font-size: .9rem; padding: .5rem .7rem; border: 1px solid #d4d2cd; border-radius: 10px; background: #fff; }
 .muted { color: #777; }
 .err { color: #b3261e; }
 .ok { color: #157f3d; }
@@ -83,11 +85,17 @@ tr.site-detail td { padding: 0; }
 .detail-row .muted { width: 7.5rem; flex-shrink: 0; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
 .upg .badge { margin-left: 0; }
 .detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
-.detail-reason .err { display: block; }`;
+.detail-reason .err { display: block; }
+.panel-footer { border-top: 1px solid #e8e6e1; padding: 1rem 1.25rem 1.5rem; }
+.panel-footer .foot { max-width: 680px; margin: 0 auto; display: flex; justify-content: flex-end; }
+.lang-switch { display: inline-flex; gap: .9rem; font-size: .85rem; align-items: center; }
+.lang-switch a { color: #777; text-decoration: none; }
+.lang-switch a:hover { color: #1a1a1a; }
+.lang-switch a[aria-current='true'] { color: #1a1a1a; font-weight: 600; }`;
 
-function shell(title, body, extraHead = '') {
+function shell(title, body, extraHead = '', { locale = 'en', pathname = '/' } = {}) {
   return `<!doctype html>
-<html lang="en">
+<html lang="${locale}" data-panel-lang="${locale}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -97,8 +105,14 @@ ${extraHead}
 </head>
 <body>
 ${body}
+<footer class="panel-footer"><div class="foot">${languageSwitcher(locale, pathname)}</div></footer>
 </body>
 </html>`;
+}
+
+// Embed the current locale's string table for the page's client-side script.
+function i18nScript(locale) {
+  return `<script>window.I18N = ${JSON.stringify(stringsFor(locale))};</script>`;
 }
 
 function turnstileWidget(sitekey) {
@@ -114,58 +128,57 @@ function turnstileScript(sitekey) {
   return '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></scr' + 'ipt>';
 }
 
-export function welcomePage({ email }) {
+export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
   const cta = email
-    ? `<a class="btn" href="/app">Open your dashboard</a>`
-    : `<a class="btn" href="/login">Get started</a>`;
+    ? `<a class="btn" href="/app">${t(locale, 'welcomeOpen')}</a>`
+    : `<a class="btn" href="/login">${t(locale, 'welcomeGetStarted')}</a>`;
   return shell(
-    'kantan — publish a blog in minutes',
+    t(locale, 'welcomeTitle'),
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/">kantan<span> かんたん</span></a>
-        ${email ? `<a class="muted" style="font-size:.85rem" href="/app">Dashboard</a>` : ''}
+        ${email ? `<a class="muted" style="font-size:.85rem" href="/app">${t(locale, 'navDashboard')}</a>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
-        A free blog you can <em>actually</em> publish to in minutes.
+        ${t(locale, 'welcomeH1')}
       </h1>
       <p style="font-size:1.1rem; color:#555; max-width:34rem">
-        kantan (かんたん) means <strong>simple</strong>. Sign in with just your email,
-        and kantan wires up your GitHub repo, hosting, and editor for you.
+        ${t(locale, 'welcomeIntro')}
       </p>
       <p style="margin:1.5rem 0 3rem">${cta}</p>
-      <section class="card"><h2>How it works</h2>
+      <section class="card"><h2>${t(locale, 'welcomeHow')}</h2>
         <ol style="font-size:.95rem; margin:.5rem 0 0; padding-left:1.1rem; color:#333">
-          <li><strong>Sign in with your email</strong> — no passwords, no GitHub login for the panel.</li>
-          <li><strong>Connect GitHub + Cloudflare</strong> — one paste of a Cloudflare token; kantan creates everything.</li>
-          <li><strong>Write & publish</strong> — edit posts in a friendly editor; every save rebuilds your site.</li>
+          <li><strong>${t(locale, 'welcomeStep1')}</strong></li>
+          <li><strong>${t(locale, 'welcomeStep2')}</strong></li>
+          <li><strong>${t(locale, 'welcomeStep3')}</strong></li>
         </ol>
       </section>
-      <section class="card"><h2>Your keys stay yours</h2>
+      <section class="card"><h2>${t(locale, 'welcomeKeys')}</h2>
         <p style="margin-bottom:0">
-          kantan never stores your GitHub or Cloudflare credentials. They are used for the
-          seconds it takes to create your site, written into <strong>your own repository</strong>
-          as deployment secrets, and discarded. You can revoke or rotate them any time.
+          ${t(locale, 'welcomeKeysBody')}
         </p>
       </section>
     </main>`,
+    '',
+    { locale, pathname },
   );
 }
 
-export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
+export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pathname = '/' } = {}) {
   return shell(
-    'Sign in — kantan',
+    t(locale, 'loginTitle'),
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/">kantan<span> かんたん</span></a>
-        <a class="muted" style="font-size:.85rem" href="/">Back</a>
+        <a class="muted" style="font-size:.85rem" href="/">${t(locale, 'navBack')}</a>
       </header>
       <div class="card" style="max-width:420px">
-        <h2>Sign in</h2>
-        <p>Enter your email and we'll send you a one-time login link.</p>
+        <h2>${t(locale, 'signIn')}</h2>
+        <p>${t(locale, 'signInBody')}</p>
         <form id="login">
-          <input type="email" id="email" placeholder="you@example.com" required autofocus />
+          <input type="email" id="email" placeholder="${t(locale, 'emailPlaceholder')}" required autofocus />
           ${turnstileWidget(turnstileSitekey)}
-          <button class="btn" type="submit" style="margin-top:.75rem; width:100%">Email me a login link</button>
+          <button class="btn" type="submit" style="margin-top:.75rem; width:100%">${t(locale, 'emailMeLink')}</button>
         </form>
         <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
       </div>
@@ -175,11 +188,6 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
       const status = document.getElementById('status');
       const loginBtn = form.querySelector('button');
       const tsWidget = document.querySelector('.cf-turnstile');
-      // With a widget present, hold the submit until Turnstile reports success
-      // so a half-solved captcha never hits the server's fail-closed path with
-      // a misleading "Too many requests" message. The widget is hidden
-      // (interaction-only) and auto-runs on load; it only appears when a real
-      // challenge is required.
       let turnstileOk = !tsWidget;
       const updateLoginBtn = () => { if (loginBtn) loginBtn.disabled = !turnstileOk; };
       const rerunTurnstile = () => {
@@ -194,7 +202,7 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
       window.onTurnstileError = () => {
         turnstileOk = false;
         updateLoginBtn();
-        status.innerHTML = '<span class="err">Verification failed — please reload and try again.</span>';
+        status.innerHTML = '<span class="err">' + window.I18N.verifFailed + '</span>';
       };
       window.onTurnstileExpired = () => rerunTurnstile();
       updateLoginBtn();
@@ -202,11 +210,11 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
         e.preventDefault();
         const btn = loginBtn;
         if (tsWidget && !turnstileOk) {
-          status.innerHTML = '<span class="err">Please complete the verification box first.</span>';
+          status.innerHTML = '<span class="err">' + window.I18N.completeVerification + '</span>';
           return;
         }
         btn.disabled = true;
-        status.innerHTML = '<span class="muted">Sending…</span>';
+        status.innerHTML = '<span class="muted">' + window.I18N.sending + '</span>';
         const r = await fetch('/api/login', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -217,46 +225,44 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
-          status.innerHTML = '<span class="err">' + (data.error || 'Could not send the link.') + '</span>';
-          // Turnstile tokens are single-use; after any rejection re-run the
-          // widget so the user can re-solve instead of being stuck on a
-          // consumed token.
+          status.innerHTML = '<span class="err">' + (data.error || window.I18N.couldNotSend) + '</span>';
           rerunTurnstile();
           if (!(tsWidget && window.turnstile)) btn.disabled = false;
           return;
         }
-        status.innerHTML = '<span class="ok">✓ Check your inbox — the link expires in 15 minutes.</span>';
+        status.innerHTML = '<span class="ok">' + window.I18N.checkInbox + '</span>';
         if (data.devLink) {
           status.insertAdjacentHTML('beforeend',
-            '<br><span class="muted" style="font-size:.8rem">No email provider configured (dev mode). Link:</span>' +
+            '<br><span class="muted" style="font-size:.8rem">' + window.I18N.devModeLink + '</span>' +
             '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
         }
-        // The token was consumed by the successful verification; reset so the
-        // user can send to a different address without reloading the page.
         rerunTurnstile();
       });
     </script>`,
-    turnstileScript(turnstileSitekey),
+    i18nScript(locale) + turnstileScript(turnstileSitekey),
+    { locale, pathname },
   );
 }
 
-export function messagePage(title, text) {
+export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
     title,
     `<main class="wrap"><div class="card">
       <h2>${title}</h2>
       <p>${text}</p>
-      <p><a class="btn" href="/">Back to kantan</a></p>
+      <p><a class="btn" href="/">${t(locale, 'backToKantan')}</a></p>
     </div></main>`,
+    '',
+    { locale, pathname },
   );
 }
 
-export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
+export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale = 'en', pathname = '/' } = {}) {
   const table = hasSites
     ? `<section class="card" id="sites-card">
-        <h2>Your sites</h2>
+        <h2>${t(locale, 'yourSites')}</h2>
         <table class="sites">
-          <thead><tr><th>Site</th><th>Created</th><th></th></tr></thead>
+          <thead><tr><th>${t(locale, 'thSite')}</th><th>${t(locale, 'thCreated')}</th><th></th></tr></thead>
           <tbody>
             ${sites
               .map(
@@ -265,14 +271,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
                     <td><a href="${s.origin}" target="_blank" rel="noopener" class="site-link">${s.origin.replace('https://', '')}</a>
                       <div class="muted" style="font-size:.72rem; margin-top:.1rem">${s.repo}</div>
                     </td>
-                    <td class="muted">${new Date(s.created_at).toLocaleDateString()}</td>
-                    <td style="text-align:right; white-space:nowrap"><button class="btn info-glyph" title="More info" aria-label="More info" data-more="${s.origin}">i</button></td>
+                    <td class="muted">${new Date(s.created_at).toLocaleDateString(locale)}</td>
+                    <td style="text-align:right; white-space:nowrap"><button class="btn info-glyph" title="${t(locale, 'moreInfo')}" aria-label="${t(locale, 'moreInfo')}" data-more="${s.origin}">i</button></td>
                   </tr>
                   <tr class="site-detail hidden" data-detail="${s.origin}">
                     <td colspan="3">
                       <div class="detail-wrap">
-                        <div class="detail-row"><span class="muted">Editor</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
-                        <div class="detail-row"><span class="muted">Upgradable</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">check</button></span></div>
+                        <div class="detail-row"><span class="muted">${t(locale, 'editor')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
+                        <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
                       </div>
                     </td>
@@ -281,83 +287,83 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
               .join('')}
           </tbody>
         </table>
-        <button class="btn" id="new-site" style="margin-top:.75rem">Create another site</button>
+        <button class="btn" id="new-site" style="margin-top:.75rem">${t(locale, 'createAnotherSite')}</button>
       </section>`
     : '';
   const wizardHidden = hasSites ? 'hidden' : '';
   return shell(
-    'Dashboard — kantan',
+    t(locale, 'dashboardTitle'),
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/">kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${email} &nbsp;<a href="/api/logout">logout</a></div>
+        <div style="font-size:.85rem" class="muted">${email} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}
 
       <div id="wizard" class="${wizardHidden}">
       <section class="card">
-        <h2><span class="num">1</span> Connect GitHub</h2>
-        <p>Your site lives in a new repository in your GitHub account. We ask for
-           <code>repo</code> access so we can create it and set it up for you.</p>
+        <h2><span class="num">1</span> ${t(locale, 'step1Title')}</h2>
+        <p>${t(locale, 'step1Body')}</p>
         <div id="gh-logged-out">
-          <button class="btn" onclick="localStorage.setItem('kantan-wizard-open','1'); location.href='/auth/github'">Connect GitHub</button>
+          <button class="btn" onclick="localStorage.setItem('kantan-wizard-open','1'); location.href='/auth/github'">${t(locale, 'connectGithub')}</button>
         </div>
         <div id="gh-logged-in" class="hidden">
-          <div class="status ok">✓ Connected as <strong id="gh-login"></strong>
-            &nbsp;<a href="/api/wizard/logout" class="muted" style="font-size:.8rem">switch account</a>
+          <div class="status ok">✓ ${t(locale, 'connectedAs')} <strong id="gh-login"></strong>
+            &nbsp;<a href="/api/wizard/logout" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
           </div>
         </div>
       </section>
 
       <section class="card" id="step2">
-        <h2><span class="num">2</span> Connect Cloudflare</h2>
-        <p>Paste an API token with <strong>Cloudflare Pages: Edit</strong> and
-           <strong>Account Settings: Read</strong>
-           (<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">create one</a> →
-           "Create Custom Token" → add both permissions). Account Settings: Read lets us
-           detect your account automatically; the token is used once to create your site
-           and is never stored here.</p>
-        <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
-        <button class="btn" id="cf-verify" style="margin-top:.75rem">Verify token</button>
+        <h2><span class="num">2</span> ${t(locale, 'step2Title')}</h2>
+        <p>${t(locale, 'step2Body')}</p>
+        <input type="password" id="cf-token" placeholder="${t(locale, 'cfTokenPlaceholder')}" autocomplete="off" />
+        <button class="btn" id="cf-verify" style="margin-top:.75rem">${t(locale, 'verifyToken')}</button>
         <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
-          <label style="font-size:.8rem; color:#555" for="cf-account">Cloudflare account</label>
+          <label style="font-size:.8rem; color:#555" for="cf-account">${t(locale, 'cfAccount')}</label>
           <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
         </div>
         <div id="cf-account-id-field" class="hidden" style="margin:.5rem 0">
-          <label style="font-size:.8rem; color:#555" for="cf-account-id">Cloudflare account ID</label>
+          <label style="font-size:.8rem; color:#555" for="cf-account-id">${t(locale, 'cfAccountId')}</label>
           <input type="text" id="cf-account-id" placeholder="e.g. 685065f0bb97a19eb21d063f9d5efdc6" autocomplete="off" style="margin-top:.25rem" />
           <p class="muted" style="font-size:.75rem; margin:.3rem 0 0">
-            This token can't list accounts, so enter the account ID it belongs to
-            (dash.cloudflare.com → select the account → it's in the URL), or add
-            <em>Account Settings: Read</em> to the token and re-verify.
+            ${t(locale, 'cfAccountIdHint')}
           </p>
         </div>
         <div class="status" id="cf-status"></div>
       </section>
 
       <section class="card" id="step3">
-        <h2><span class="num">3</span> Name your site</h2>
-        <p>This becomes your repository name and your free address:
-           <code>&lt;name&gt;.pages.dev</code></p>
-        <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
+        <h2><span class="num">3</span> ${t(locale, 'step3Title')}</h2>
+        <p>${t(locale, 'step3Body')}</p>
+        <input type="text" id="site-name" placeholder="${t(locale, 'siteNamePlaceholder')}" autocomplete="off" />
         <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
           <input type="checkbox" id="site-public" style="margin-top:.3rem" />
           <span style="display:block">
-            Make this repository public
-            <span class="muted" style="display:block; font-size:.78rem">(your site itself is always public)</span>
+            ${t(locale, 'makePublic')}
+            <span class="muted" style="display:block; font-size:.78rem">${t(locale, 'publicHint')}</span>
           </span>
         </label>
         <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
           <input type="checkbox" id="site-branded" checked style="margin-top:.3rem" />
           <span style="display:block">
-            Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
-            <span class="muted" style="display:block; font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+            ${t(locale, 'assignBranded').replace('<name>', '<code>&lt;name&gt;</code>')}
+            <span class="muted" style="display:block; font-size:.78rem">${t(locale, 'brandedHint')}</span>
           </span>
         </label>
         <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+          <span style="min-width:5rem">${t(locale, 'languageLabel')}</span>
+          <select id="site-lang" style="flex:1">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh-Hant">繁體中文</option>
+            <option value="zh-Hans">简体中文</option>
+          </select>
+        </label>
         ${turnstileWidget(turnstileSitekey)}
-        <button class="btn" id="create" disabled>Create my website</button>
+        <button class="btn" id="create" disabled>${t(locale, 'createSite')}</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
         <div id="result"></div>
@@ -367,7 +373,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
 
     <div class="modal-backdrop" id="update-modal">
       <div class="modal">
-        <h3 id="um-title">Update</h3>
+        <h3 id="um-title">${t(locale, 'update')}</h3>
         <div id="um-body"></div>
         <div class="actions" id="um-actions"></div>
       </div>
@@ -377,9 +383,13 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       const $ = (id) => document.getElementById(id);
       let cfToken = null, cfAccountId = null, ghConnected = false;
       const tsWidget = document.querySelector('.cf-turnstile');
-      // With a widget present, hold Create until Turnstile reports success so a
-      // half-solved captcha never hits the server's fail-closed path.
       let turnstileOk = !tsWidget;
+
+      // Pre-select the site language from the panel's current language
+      // (window.I18N is the server-resolved locale's string table, but the
+      // language itself comes from a data attribute set server-side).
+      const selLang = document.getElementById('site-lang');
+      if (selLang) selLang.value = document.documentElement.getAttribute('data-panel-lang') || 'en';
 
       window.onTurnstileSuccess = () => { turnstileOk = true; refreshCreateButton(); };
       window.onTurnstileError = () => {
@@ -387,7 +397,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         refreshCreateButton();
         const result = $('result');
         if (result) {
-          result.innerHTML = '<div class="status err">Verification failed — please reload and try again.</div>';
+          result.innerHTML = '<div class="status err">' + window.I18N.verifFailed + '</div>';
         }
       };
       window.onTurnstileExpired = () => resetTurnstile();
@@ -403,10 +413,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim() && turnstileOk);
       }
 
-      // Turnstile tokens are single-use and expire after 300 s; after a failed
-      // submit (consumed token) or an expiry, reset AND re-execute the widget so
-      // a fresh token is issued (the success callback re-enables Create).
-      // Returns the button to the gated state.
       const resetTurnstile = () => {
         if (tsWidget && window.turnstile) {
           window.turnstile.reset(tsWidget);
@@ -432,8 +438,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       $('cf-verify').onclick = async () => {
         const token = $('cf-token').value.trim();
         const st = $('cf-status');
-        if (!token) { st.className = 'status err'; st.textContent = 'Paste a token first.'; return; }
-        st.className = 'status muted'; st.textContent = 'Checking…';
+        if (!token) { st.className = 'status err'; st.textContent = window.I18N.pasteTokenFirst; return; }
+        st.className = 'status muted'; st.textContent = window.I18N.checking;
         const r = await fetch('/api/cf/accounts', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ token }),
@@ -441,7 +447,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         const data = await r.json();
         if (!r.ok) {
           st.className = 'status err';
-          st.textContent = '✗ ' + (data.error || 'Token rejected. Needs "Cloudflare Pages: Edit".');
+          st.textContent = '✗ ' + (data.error || window.I18N.tokenRejected);
           return;
         }
         cfToken = token;
@@ -450,7 +456,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         if (data.accounts.length === 1) {
           cfAccountId = data.accounts[0].id;
           st.className = 'status ok';
-          st.textContent = '✓ Token works — account: ' + data.accounts[0].name;
+          st.textContent = '✓ ' + window.I18N.tokenWorksAccount + ' ' + data.accounts[0].name;
         } else if (data.accounts.length > 1) {
           cfAccountId = null;
           const sel = $('cf-account');
@@ -460,8 +466,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           sel.onchange = () => { cfAccountId = sel.value; refreshCreateButton(); };
           $('cf-account-picker').classList.remove('hidden');
           st.className = 'status ok';
-          st.textContent = '✓ Token works — ' + data.accounts.length +
-            ' accounts found. Select the one to use:';
+          st.textContent = '✓ ' + window.I18N.tokenWorksAccount + ' ' + data.accounts.length + ' ' + window.I18N.accountsFound;
         } else {
           cfAccountId = null;
           const idInput = $('cf-account-id');
@@ -469,21 +474,17 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           idInput.oninput = () => { cfAccountId = idInput.value.trim() || null; refreshCreateButton(); };
           $('cf-account-id-field').classList.remove('hidden');
           st.className = 'status muted';
-          st.textContent = '✓ Token authenticates, but cannot list accounts. ' +
-            'Enter the Cloudflare account ID it belongs to, or add "Account Settings: Read".';
+          st.textContent = window.I18N.tokenCantList;
         }
         $('step3').classList.add('enabled');
         refreshCreateButton();
       };
 
-      // Short names can't carry a branded address. Show a live hint while
-      // typing, but only act on the FINAL submitted name (in the create handler
-      // below) so a name that grows to >=4 chars keeps the default-checked box.
       const updateBrandedHint = () => {
         const name = $('site-name').value.trim();
         const hint = $('branded-fallback-hint');
         if ($('site-branded').checked && name.length > 0 && name.length < 4) {
-          hint.textContent = 'Too short for a branded address — will use pages.dev only.';
+          hint.textContent = window.I18N.tooShortBranded;
           hint.classList.remove('hidden');
         } else {
           hint.classList.add('hidden');
@@ -492,8 +493,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       $('site-name').oninput = () => { refreshCreateButton(); updateBrandedHint(); };
       $('site-branded').onchange = () => { updateBrandedHint(); };
 
-      // Progress bar: simulated advance while the single provisioning POST runs
-      // (there is no per-step streaming yet), then snap to 100% (ok) or 85% (err).
       const pbar = $('pbar'), pfill = $('pbar-fill');
       let barAnim = null;
       const setBar = (width, cls) => {
@@ -511,7 +510,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         pbar.classList.add('visible');
         setBar('5%', null);
         const start = Date.now();
-        const DURATION = 40000; // provisioning typically takes tens of seconds
+        const DURATION = 40000;
         barAnim = setInterval(() => {
           const t = Math.min(1, (Date.now() - start) / DURATION);
           pfill.style.width = (5 + 80 * t) + '%';
@@ -524,9 +523,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         };
         let data;
         try {
-          // Fall back to pages.dev-only for names too short to carry a branded
-          // address, evaluated on the FINAL name so a box the user left checked
-          // doesn't hard-fail (and never silently unchecks a name that grew).
           if ($('site-branded').checked && $('site-name').value.trim().length < 4) {
             $('site-branded').checked = false;
             updateBrandedHint();
@@ -538,6 +534,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
               cfToken, cfAccountId,
               public: $('site-public').checked,
               branded: $('site-branded').checked,
+              lang: selLang ? selLang.value : 'en',
               turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
           });
@@ -548,9 +545,9 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           const div = document.createElement('div');
           div.className = 'status err';
           div.style.marginTop = '.5rem';
-          div.textContent = 'Provisioning failed: ' +
-            ((err && err.message) ? err.message : 'could not reach the server') +
-            '. Your site may be partially created; check GitHub and retry.';
+          div.textContent = window.I18N.provisioningFailed +
+            ((err && err.message) ? err.message : window.I18N.couldNotReach) +
+            window.I18N.partialCreate;
           $('result').appendChild(div);
           $('create').disabled = false;
           resetTurnstile();
@@ -561,13 +558,13 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         if (data.ok) {
           setBar('100%', 'ok');
           const meanwhile = (data.site.pagesDevUrl && data.site.pagesDevUrl !== data.site.url)
-            ? '<br>Meanwhile it\\'s live at: <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
+            ? '<br>' + window.I18N.meanwhileLive + ' <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
             : '';
           $('result').innerHTML =
-            '<div class="result"><strong>Your site is being built.</strong><br>' +
-            'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
-            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a>' + meanwhile + '<br>' +
-            'Editor: <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
+            '<div class="result"><strong>' + window.I18N.yourSiteBuilding + '</strong><br>' +
+            window.I18N.repo + ' <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
+            window.I18N.site + ' <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a>' + meanwhile + '<br>' +
+            window.I18N.editor + ' <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
             '<span class="muted">' + data.site.note + '</span></div>';
           setTimeout(() => { location.href = '/app'; }, 2500);
         } else {
@@ -575,7 +572,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           const div = document.createElement('div');
           div.className = 'status err';
           div.style.marginTop = '.5rem';
-          div.textContent = data.error || 'Provisioning failed.';
+          div.textContent = data.error || window.I18N.provisioningFailed;
           $('result').appendChild(div);
           $('create').disabled = false;
           resetTurnstile();
@@ -584,7 +581,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
 
       init();
 
-      // ---- More info slide-down + upgrade check flow --------------------
       const modal = $('update-modal');
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -599,7 +595,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
       const errorModal = (msg) => {
-        openModal('Something went wrong', '<p class="err">' + esc(msg || 'The panel could not be reached.') + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+        openModal(window.I18N.somethingWentWrong, '<p class="err">' + esc(msg || window.I18N.couldNotReachPanel) + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
       };
 
       const apiPost = async (path, body) => {
@@ -607,41 +603,35 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         try {
           r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         } catch (err) {
-          errorModal('Could not reach the panel: ' + ((err && err.message) || err) + '. Try again.');
+          errorModal(window.I18N.couldNotReachPanel + ((err && err.message) || err) + '.');
           return null;
         }
         if (r.status === 401) {
           const d = await r.json().catch(() => ({}));
           if (d.connectUrl) return { connectUrl: d.connectUrl };
-          errorModal('Not signed in.');
+          errorModal(window.I18N.notSignedIn);
           return null;
         }
         const data = await r.json().catch(() => ({}));
-        // 409 {blocked:...} is a handled state (e.g. major-bump confirm), not a
-        // generic error — let it through so the caller can act on data.blocked.
-        if (!r.ok && !data.blocked) { errorModal(data.error || ('Request failed (' + r.status + ').')); return null; }
+        if (!r.ok && !data.blocked) { errorModal(data.error || (window.I18N.requestFailed + r.status + ').')); return null; }
         return data;
       };
 
       const REASON_TEXT = {
-        dirty: 'Your site has core files that differ from the template — updates are blocked so your changes are never overwritten.',
-        collision: 'The template now adds files that already exist in your site — the update would overwrite them.',
-        ci: 'The template is not passing its own CI right now — updates are held until it is green.',
-        legacy: 'This site was created before version tracking existed. Upgrades are not offered for it yet.',
-        unreadable: 'The site repo could not be read (private, deleted, or no access).',
+        dirty: window.I18N.reasonDirty,
+        collision: window.I18N.reasonCollision,
+        ci: window.I18N.reasonCi,
+        legacy: window.I18N.reasonLegacy,
+        unreadable: window.I18N.reasonUnreadable,
       };
 
       const upgHtml = (up) => {
         const s = up && up.upgradeable;
         const cls = s === 'yes' ? 'update' : s === 'no' ? 'uptodate' : 'dirty';
-        const label = s === 'yes' ? 'Yes' : s === 'no' ? 'No' : 'N/A';
+        const label = s === 'yes' ? window.I18N.yes : s === 'no' ? window.I18N.no : window.I18N.na;
         return '<span class="badge ' + cls + '">' + label + '</span>';
       };
 
-      // Row click / More info toggles the slide-down. The site link itself keeps
-      // navigating directly (stopPropagation on the anchor). While open, the
-      // More info button flips to the filled style (same as 'Create another
-      // site').
       const toggleDetail = (origin) => {
         const detail = document.querySelector('[data-detail="' + origin + '"]');
         const btn = document.querySelector('[data-more="' + origin + '"]');
@@ -669,45 +659,37 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           const reason = REASON_TEXT[data.reason];
           reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
           if (data.upgradeable === 'yes') {
-            upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">Update</button>');
+            upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">' + window.I18N.update + '</button>');
             upgCell.querySelector('[data-upgrade]').onclick = () => openUpdateModal(origin);
           }
         } else {
-          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + window.I18N.check + '</button>';
           upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
         }
       };
 
-      // Render the idle [check] button for a site's upgradable cell, optionally
-      // with a reason (e.g. a cancelled connect or a failed fetch).
       const renderCheckButton = (origin, reason) => {
         const upgCell = document.querySelector('[data-upg="' + origin + '"]');
         const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
         if (reasonCell) reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
         if (upgCell) {
-          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">check</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + window.I18N.check + '</button>';
         }
       };
 
       const runCheck = async (origin, { fromReturn = false } = {}) => {
         const upgCell = document.querySelector('[data-upg="' + origin + '"]');
-        if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">Checking…</span>';
+        if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">' + window.I18N.checking + '</span>';
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) {
-          // Fetch failed (network / 500): settle back to the check button instead
-          // of leaving the cell stuck on "Checking…" forever.
-          renderCheckButton(origin, 'Could not check — click check to retry.');
+          renderCheckButton(origin, window.I18N.couldNotCheck);
           return;
         }
         if (data.connectUrl) {
           if (fromReturn) {
-            // We just came back from the OAuth round-trip and still have no
-            // token (the user cancelled or the flow failed). Reset to the check
-            // state instead of looping back into /auth/github.
-            renderCheckButton(origin, 'GitHub connect was cancelled or failed — click check to retry.');
+            renderCheckButton(origin, window.I18N.ghConnectCancelled);
             return;
           }
-          // No active GitHub connect: remember which site to re-check on return.
           localStorage.setItem('kantan-check-site', origin);
           location.href = data.connectUrl;
           return;
@@ -715,8 +697,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         renderCheck(origin, data);
       };
 
-      // Return-to-site: after the /auth/github round-trip the panel reloads at
-      // /app; reopen the site we were checking and run the check in place.
       (function returnToSite() {
         const pending = localStorage.getItem('kantan-check-site');
         if (!pending) return;
@@ -730,9 +710,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         runCheck(pending, { fromReturn: true });
       })();
 
-      // Return-to-wizard: the wizard's Connect GitHub button stores this flag
-      // before navigating; on return /app otherwise re-hides the wizard (because
-      // the user has sites). Reopen it so the three steps stay visible.
       (function returnToWizard() {
         if (!localStorage.getItem('kantan-wizard-open')) return;
         localStorage.removeItem('kantan-wizard-open');
@@ -742,15 +719,10 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         }
       })();
 
-      // If the page is restored from the back/forward cache (refresh/back while
-      // a check was mid-flight), the DOM comes back with the cell stuck on
-      // "Checking…" and the script does not re-run. Reset only cells that are
-      // still pending — completed results (yes/no/N-A + Update button) survive
-      // the restore untouched.
       window.addEventListener('pageshow', (e) => {
         if (!e.persisted) return;
         document.querySelectorAll('[data-upg]').forEach((cell) => {
-          if (cell.textContent.includes('Checking…')) {
+          if (cell.textContent.includes(window.I18N.checking)) {
             renderCheckButton(cell.getAttribute('data-upg'), null);
           }
         });
@@ -762,7 +734,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       });
 
       async function openUpdateModal(origin) {
-        openModal('Checking…', '<p class="muted">Comparing your site against the template…</p>', '');
+        openModal(window.I18N.checking, '<p class="muted">' + window.I18N.comparing + '</p>', '');
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) return;
         if (data.connectUrl) {
@@ -771,47 +743,47 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           return;
         }
         if (data.upgradeable === 'no') {
-          openModal('Up to date', '<p>Your site already runs the current template core.</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          openModal(window.I18N.upToDate, '<p>' + window.I18N.upToDateBody + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
           renderCheck(origin, data);
           return;
         }
         if (data.upgradeable === 'N/A') {
-          const reason = REASON_TEXT[data.reason] || 'This site cannot be updated right now.';
-          openModal('Update not available', '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">Files that block the update:</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          const reason = REASON_TEXT[data.reason] || window.I18N.updateNotAvailable;
+          openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + window.I18N.filesBlocking + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
           renderCheck(origin, data);
           return;
         }
-        // yes: diff summary + gates, then confirm.
         const changes = data.changes || [];
         const list = changes.slice(0, 30).map((c) => '<li class="' + esc(c.status) + '">' + esc(c.path) + '</li>').join('');
-        const extra = changes.length > 30 ? '<p class="muted">…and ' + (changes.length - 30) + ' more</p>' : '';
+        const extra = changes.length > 30 ? '<p class="muted">' + window.I18N.moreFiles.replace('{n}', changes.length - 30) + '</p>' : '';
         let gates = '';
-        if (data.majorBumps && data.majorBumps.length) gates += '<p class="err"><strong>Major version bump:</strong> ' + esc(data.majorBumps.join(', ')) + '. This can change the look or break customizations — review before updating.</p>';
-        const body = '<p>Updating <code>' + esc(origin) + '</code> from template <code>' + shortSha(data.from) + '</code> to <code>' + shortSha(data.to) + '</code>.</p>' +
-          '<p>Your posts, images and settings are never touched. Files that change:</p>' +
-          '<ul class="changes">' + (list || '<li>no core file changes</li>') + '</ul>' + extra + gates;
-        openModal('Update available', body,
-          '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">Update to ' + shortSha(data.to) + '</button>' +
-          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+        if (data.majorBumps && data.majorBumps.length) gates += '<p class="err"><strong>' + window.I18N.majorBump.replace('{deps}', esc(data.majorBumps.join(', '))) + '</strong></p>';
+        const body = '<p>' + window.I18N.updateFromTo.replace('{origin}', esc(origin)).replace('{from}', shortSha(data.from)).replace('{to}', shortSha(data.to)) + '</p>' +
+          '<p>' + window.I18N.filesNeverTouched + '</p>' +
+          '<ul class="changes">' + (list || '<li>' + window.I18N.noCoreChanges + '</li>') + '</ul>' + extra + gates;
+        openModal(window.I18N.updateAvailable, body,
+          '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">' + window.I18N.updateTo.replace('{to}', shortSha(data.to)) + '</button>' +
+          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
         $('update-go').onclick = () => doUpdate(origin, data.majorBumps && data.majorBumps.length > 0);
       }
 
       async function doUpdate(origin, major) {
-        openModal('Updating…', '<p class="muted">Applying the update and rebuilding your site. This takes a minute or two.</p>', '');
+        openModal(window.I18N.updating, '<p class="muted">' + window.I18N.applyingUpdate + '</p>', '');
         const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
         if (!data) return;
         if (data.ok) {
-          openModal('Update complete', '<p>Your site is updated to template <code>' + shortSha(data.to) + '</code> (' + data.changed + ' file(s) changed). The deploy has been triggered — it takes a minute or two to go live.</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">View the build</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">Done</button>');
+          openModal(window.I18N.updateComplete, '<p>' + window.I18N.updateCompleteBody.replace('{to}', shortSha(data.to)).replace('{n}', data.changed) + '</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">' + window.I18N.viewBuild + '</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + window.I18N.done + '</button>');
           renderCheck(origin, { upgradeable: 'no' });
         } else {
-          let body = '<p class="err">' + esc(data.error || 'Update failed.') + '</p>';
-          if (data.blocked === 'major') body = '<p>This update bumps a major version (<code>' + esc((data.majorBumps || []).join(', ')) + '</code>). It can change the look or break customizations.</p><p class="err">Confirm to continue, or cancel.</p>';
-          openModal('Update failed', body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">Confirm &amp; update anyway</button>'
-            : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">Close</button>');
+          let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';
+          if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err"></p>';
+          openModal(window.I18N.updateFailed, body, (data.blocked === 'major'
+            ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">' + window.I18N.confirmAnyway + '</button>'
+            : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
         }
       }
     </script>`,
-    turnstileScript(turnstileSitekey),
+    i18nScript(locale) + turnstileScript(turnstileSitekey),
+    { locale, pathname },
   );
 }
