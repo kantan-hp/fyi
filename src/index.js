@@ -166,21 +166,22 @@ function redirect(location) {
 }
 
 // Language switcher: set the kantan_lang cookie and return to the page.
-// `l` must be one of our locales; `next` must be a same-site path (open-redirect
-// guard: reject scheme-relative `//`, backslash `\`, and ASCII tab/newline —
-// browsers strip the latter from URLs, so `/\%09evil.com` normalizes to
-// `//evil.com`). Cookie is SameSite=Lax + HttpOnly — the worker reads it per
-// request.
+// `l` must be one of our locales; `next` must be a same-site path. Guard
+// rejects scheme-relative `//`, a leading backslash `\`, and CR/LF/NUL
+// anywhere — browsers strip the latter from URLs and they can split the
+// Location header (reflected-XSS/500 vector). Cookie is SameSite=Lax +
+// HttpOnly, always Secure (the panel origin is https; a plain-http request
+// simply falls back to Accept-Language).
 function setLang(request) {
   const url = new URL(request.url);
   const locale = url.searchParams.get('l');
   const next = url.searchParams.get('next') || '/';
-  const safeNext = /^\/(?![\/\\\t\n\r])/.test(next) ? next : '/';
+  const safeNext = /^\/(?!\/|\\)[^\r\n\0]*$/.test(next) ? next : '/';
   const headers = new Headers({ location: safeNext });
   if (isLocale(locale)) {
     headers.append(
       'set-cookie',
-      cookie(LANG_COOKIE, locale, { secure: isHttps(request), maxAge: 60 * 60 * 24 * 365 }),
+      cookie(LANG_COOKIE, locale, { secure: true, maxAge: 60 * 60 * 24 * 365 }),
     );
   }
   return new Response(null, { status: 302, headers });
@@ -433,7 +434,8 @@ async function oauthStart(request, env, flow) {
   // Browser navigation — an HTML 429, not raw JSON.
   if (!ipRateLimit(request, 'oauth', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
     console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-ip', t: Date.now() }));
-    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
+    const locale = resolveLocale(request);
+    return html(messagePage(t(locale, 'tooManyTitle'), t(locale, 'tooManyBody'), { locale, pathname: '/auth/github' }), 429);
   }
   const nonce = crypto.randomUUID();
   const state = await signPayload(env.SESSION_SECRET, { flow, nonce });
@@ -474,7 +476,8 @@ async function oauthCallback(request, env) {
   // affects the whole OAuth round-trip.
   if (!ipRateLimit(request, 'oauth-callback', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
     console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-callback-ip', t: Date.now() }));
-    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
+    const locale = resolveLocale(request);
+    return html(messagePage(t(locale, 'tooManyTitle'), t(locale, 'tooManyBody'), { locale, pathname: '/oauth/callback' }), 429);
   }
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
@@ -486,7 +489,8 @@ async function oauthCallback(request, env) {
     return new Response(null, { status: 302, headers });
   };
   if (!state || !state.nonce || cookies[NONCE_COOKIE] !== state.nonce) {
-    return html(messagePage('Invalid OAuth state', 'Please go back and try connecting GitHub again.'), 403);
+    const locale = resolveLocale(request);
+    return html(messagePage(t(locale, 'invalidOauth'), t(locale, 'invalidOauthBody'), { locale, pathname: '/oauth/callback' }), 403);
   }
   if (!code) {
     // The user cancelled on GitHub (or the flow errored before a code). Send
@@ -1032,11 +1036,12 @@ async function provision(request, env) {
         });
       }
 
-      // 8a. Set the site title + default language in src/config.json BEFORE the
-      //     deploy-triggering commit below, so the FIRST build already carries
-      //     the site's name and chosen language (site.lang). Best-effort like
-      //     the old title write, but the language step is surfaced so a failed
-      //     write isn't silent — the site would otherwise be born English.
+      // 8a. Set the site title + default language in src/config.json. This is
+      //     now the FIRST push, triggering the first deploy — which therefore
+      //     already carries the site's name and chosen language (site.lang).
+      //     Best-effort like the old title write, but the language step is
+      //     surfaced so a failed write isn't silent — the site would otherwise
+      //     be born English.
       let siteTitled = false;
       let siteLanged = false;
       try {
@@ -1064,9 +1069,10 @@ async function provision(request, env) {
       ok('site-lang', siteLanged ? `default language set to "${lang}"` : 'could not set default language — the site will default to English');
 
       // 8. Point the editor at this repo + the panel's shared auth proxy.
-      //    This commit is also the first push, which triggers the deploy.
-      //    Sveltia's i18n default_locale is templated from the chosen language
-      //    so the editor's default tab matches the site's default language.
+      //     This is the SECOND push (the config.json commit in 8a was the
+      //     first). It triggers a rebuild that fixes the editor auth and
+      //     templates Sveltia's i18n default_locale from the chosen language
+      //     so the editor's default tab matches the site's default language.
       const current = b64decode(cfg.content);
       let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
       if (updated === current) throw new Error('Could not find the repo: line in config.yml.');
@@ -1077,6 +1083,11 @@ async function provision(request, env) {
         );
       }
       updated = updated.replace(/^(\s*)default_locale:.*$/m, `$1default_locale: ${lang}`);
+      // Non-fatal: if the template's i18n block ever changes shape, the editor
+      // keeps its default locale (en) but the SITE still builds with site.lang.
+      // Surface it rather than failing provisioning (the repo: guard above is
+      // the only hard dependency on the template layout).
+      const editorLocaleOk = /^\s*default_locale:/.test(updated);
       await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
         method: 'PUT',
         body: {
@@ -1086,7 +1097,12 @@ async function provision(request, env) {
           branch: 'main',
         },
       });
-      ok('decap-configured', 'first deploy triggered');
+      ok(
+        'decap-configured',
+        editorLocaleOk
+          ? 'editor configured (second build triggered)'
+          : 'editor configured — WARNING: could not template default_locale; editor opens in English',
+      );
 
       // 8b. Branded address: attach the domain to the user's Pages project
       //     (user token) + create the proxied CNAME in our zone (operator

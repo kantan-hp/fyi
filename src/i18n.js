@@ -60,7 +60,7 @@ export function resolveLocale(request) {
       const [code, ...params] = part.split(';');
       const qParam = params.find((p) => p.trim().startsWith('q='));
       const q = qParam ? parseFloat(qParam.split('=')[1]) : 1;
-      return { code: code.trim(), q: Number.isNaN(q) ? 1 : q };
+      return { code: code.trim(), q: Number.isNaN(q) ? 0 : q };
     })
     .sort((a, b) => b.q - a.q);
   for (const { code, q } of entries) {
@@ -84,7 +84,6 @@ const ui = {
     yourSites: 'Your sites',
     thSite: 'Site',
     thCreated: 'Created',
-    thActions: '',
     editor: 'Editor',
     upgradable: 'Upgradable',
     check: 'check',
@@ -170,7 +169,7 @@ const ui = {
     somethingWentWrong: 'Something went wrong',
     couldNotReachPanel: 'Could not reach the panel: ',
     notSignedIn: 'Not signed in.',
-    requestFailed: 'Request failed (',
+    requestFailed: 'Request failed ({n}).',
     couldNotCheck: 'Could not check — click check to retry.',
     ghConnectCancelled: 'GitHub connect was cancelled or failed — click check to retry.',
     upToDate: 'Up to date',
@@ -225,7 +224,6 @@ const ui = {
     yourSites: 'あなたのサイト',
     thSite: 'サイト',
     thCreated: '作成日',
-    thActions: '',
     editor: 'エディター',
     upgradable: '更新可否',
     check: '確認',
@@ -311,7 +309,7 @@ const ui = {
     somethingWentWrong: '問題が発生しました',
     couldNotReachPanel: 'パネルに接続できませんでした: ',
     notSignedIn: 'ログインしていません。',
-    requestFailed: 'リクエストに失敗しました（',
+    requestFailed: 'リクエストに失敗しました（{n}）。',
     couldNotCheck: '確認できませんでした — 「確認」をクリックして再試行してください。',
     ghConnectCancelled: 'GitHub 接続がキャンセルまたは失敗しました — 「確認」をクリックして再試行してください。',
     upToDate: '最新です',
@@ -364,7 +362,6 @@ const ui = {
     yourSites: '您的網站',
     thSite: '網站',
     thCreated: '建立時間',
-    thActions: '',
     editor: '編輯器',
     upgradable: '可更新',
     check: '檢查',
@@ -449,7 +446,7 @@ const ui = {
     somethingWentWrong: '發生錯誤',
     couldNotReachPanel: '無法連線到面板：',
     notSignedIn: '尚未登入。',
-    requestFailed: '請求失敗（',
+    requestFailed: '請求失敗（{n}）。',
     couldNotCheck: '無法檢查 — 請點「檢查」重試。',
     ghConnectCancelled: 'GitHub 連線已取消或失敗 — 請點「檢查」重試。',
     upToDate: '已是最新',
@@ -501,7 +498,6 @@ const ui = {
     yourSites: '您的网站',
     thSite: '网站',
     thCreated: '创建时间',
-    thActions: '',
     editor: '编辑器',
     upgradable: '可更新',
     check: '检查',
@@ -586,7 +582,7 @@ const ui = {
     somethingWentWrong: '发生错误',
     couldNotReachPanel: '无法连接到面板：',
     notSignedIn: '尚未登录。',
-    requestFailed: '请求失败（',
+    requestFailed: '请求失败（{n}）。',
     couldNotCheck: '无法检查 — 请点「检查」重试。',
     ghConnectCancelled: 'GitHub 连接已取消或失败 — 请点「检查」重试。',
     upToDate: '已是最新',

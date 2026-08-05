@@ -111,8 +111,12 @@ ${body}
 }
 
 // Embed the current locale's string table for the page's client-side script.
+// JSON.stringify does not escape `<`, so a future translation containing
+// `</script>` would terminate the block and run arbitrary JS — escape `<` (and
+// U+2028/U+2029) so the payload can never break out of the inline <script>.
 function i18nScript(locale) {
-  return `<script>window.I18N = ${JSON.stringify(stringsFor(locale))};</script>`;
+  const json = JSON.stringify(stringsFor(locale)).replace(/</g, '\\u003c');
+  return `<script>window.I18N = ${json};</script>`;
 }
 
 function turnstileWidget(sitekey) {
@@ -244,12 +248,20 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
   );
 }
 
+// Escape HTML in dynamic page text. messagePage receives untrusted input (the
+// worker's catch-all reflects err.message), so title/text are escaped here —
+// never interpolate raw user/error content into the page.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
     title,
     `<main class="wrap"><div class="card">
-      <h2>${title}</h2>
-      <p>${text}</p>
+      <h2>${esc(title)}</h2>
+      <p>${esc(text)}</p>
       <p><a class="btn" href="/">${t(locale, 'backToKantan')}</a></p>
     </div></main>`,
     '',
@@ -613,7 +625,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           return null;
         }
         const data = await r.json().catch(() => ({}));
-        if (!r.ok && !data.blocked) { errorModal(data.error || (window.I18N.requestFailed + r.status + ').')); return null; }
+        if (!r.ok && !data.blocked) { errorModal(data.error || window.I18N.requestFailed.replace('{n}', r.status)); return null; }
         return data;
       };
 
