@@ -336,15 +336,15 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         <p>This becomes your repository name and your free address:
            <code>&lt;name&gt;.pages.dev</code></p>
         <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
-          <input type="checkbox" id="site-public" />
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
+          <input type="checkbox" id="site-public" style="margin-top:.3rem" />
           <span style="display:flex; flex-direction:column; gap:.1rem">
             Make this repository public
             <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
           </span>
         </label>
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
-          <input type="checkbox" id="site-branded" checked />
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
+          <input type="checkbox" id="site-branded" checked style="margin-top:.3rem" />
           <span style="display:flex; flex-direction:column; gap:.1rem">
             Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
             <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
