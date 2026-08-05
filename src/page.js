@@ -289,7 +289,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
                   <tr class="site-detail hidden" data-detail="${s.origin}">
                     <td colspan="3">
                       <div class="detail-wrap">
-                        <div class="detail-row"><span class="muted">${t(locale, 'editor')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
+                        <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
                         <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
                       </div>
