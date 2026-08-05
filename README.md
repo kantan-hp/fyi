@@ -147,7 +147,9 @@ low-cardinality keys; a KV write failure fails open and is logged
 
 Every provisioned site is stamped with the `template_version` (the template `main`
 SHA) it was generated from. The panel uses this anchor for a safe update path
-(`2026-08-04-kantan-site-versioning-and-updates.md`):
+(`2026-08-04-kantan-site-versioning-and-updates.md`).
+See [docs/versioning.md](docs/versioning.md) for the canonical model and how to
+check a site's state.
 
 - **More info → check → update**: each site row has a **More info** slide-down with the
   editor link and an **Upgradable** state (`yes` / `no` / `N/A`). The check is always
