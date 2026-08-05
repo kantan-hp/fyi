@@ -88,10 +88,26 @@ tr.site-detail td { padding: 0; }
 .detail-reason .err { display: block; }
 .panel-footer { border-top: 1px solid #e8e6e1; padding: 1rem 1.25rem 1.5rem; }
 .panel-footer .foot { max-width: 680px; margin: 0 auto; display: flex; justify-content: flex-end; }
-.lang-switch { display: inline-flex; gap: .9rem; font-size: .85rem; align-items: center; }
-.lang-switch a { color: #777; text-decoration: none; }
-.lang-switch a:hover { color: #1a1a1a; }
-.lang-switch a[aria-current='true'] { color: #1a1a1a; font-weight: 600; }`;
+.lang-switch { position: relative; font-size: .85rem; }
+.lang-toggle {
+  display: inline-flex; align-items: center; gap: .4rem;
+  font: inherit; font-size: .85rem; font-weight: 600; color: #1a1a1a;
+  background: #fff; border: 1px solid #d4d2cd; border-radius: 999px;
+  padding: .3rem .75rem; cursor: pointer;
+}
+.lang-toggle:hover { border-color: #1a1a1a; }
+.lang-caret { font-size: .7rem; color: #777; transition: transform .15s ease; }
+.lang-toggle[aria-expanded='true'] .lang-caret { transform: rotate(180deg); }
+.lang-list {
+  list-style: none; margin: 0; padding: .35rem;
+  position: absolute; right: 0; bottom: calc(100% + .5rem);
+  background: #fff; border: 1px solid #e8e6e1; border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.08); min-width: 9rem; z-index: 60;
+}
+.lang-list li { margin: 0; }
+.lang-list a { display: block; padding: .35rem .7rem; border-radius: 6px; color: #1a1a1a; text-decoration: none; }
+.lang-list a:hover { background: #f4f3f0; }
+.lang-list a[aria-current='true'] { font-weight: 600; }`;
 
 function shell(title, body, extraHead = '', { locale = 'en', pathname = '/' } = {}) {
   return `<!doctype html>
@@ -106,6 +122,28 @@ ${extraHead}
 <body>
 ${body}
 <footer class="panel-footer"><div class="foot">${languageSwitcher(locale, pathname)}</div></footer>
+<script>
+  // Collapsed language switcher: click the toggle to expand all languages
+  // (upward), click a language to navigate (full reload collapses it again),
+  // click elsewhere to close.
+  (function () {
+    var list = document.getElementById('lang-list');
+    var toggle = document.querySelector('.lang-toggle');
+    if (!list || !toggle) return;
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = toggle.getAttribute('aria-expanded') === 'true';
+      list.classList.toggle('hidden', open);
+      toggle.setAttribute('aria-expanded', String(!open));
+    });
+    document.addEventListener('click', function () {
+      if (!list.classList.contains('hidden')) {
+        list.classList.add('hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  })();
+</script>
 </body>
 </html>`;
 }
@@ -152,9 +190,13 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
       <p style="margin:1.5rem 0 3rem">${cta}</p>
       <section class="card"><h2>${t(locale, 'welcomeHow')}</h2>
         <ol style="font-size:.95rem; margin:.5rem 0 0; padding-left:1.1rem; color:#333">
-          <li><strong>${t(locale, 'welcomeStep1')}</strong></li>
-          <li><strong>${t(locale, 'welcomeStep2')}</strong></li>
-          <li><strong>${t(locale, 'welcomeStep3')}</strong></li>
+          ${[1, 2, 3]
+            .map((i) => {
+              // "Title — description": bold only the title (before the em-dash).
+              const [lead, rest] = t(locale, `welcomeStep${i}`).split(' — ');
+              return `<li><strong>${lead}</strong>${rest ? ` — ${rest}` : ''}</li>`;
+            })
+            .join('')}
         </ol>
       </section>
       <section class="card"><h2>${t(locale, 'welcomeKeys')}</h2>
