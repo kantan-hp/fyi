@@ -13,6 +13,10 @@ routes = [
 # "Template repository" enabled in its GitHub settings.
 TEMPLATE_REPO = "kantan-hp/template"
 
+# Cloudflare Turnstile sitekey (public) for the login form + provisioning step.
+# Set to empty in dev to disable the widget (verification then skips).
+TURNSTILE_SITEKEY = ""
+
 # Magic-link codes + login rate limits (short-lived, single-use). Created with:
 #   npx wrangler kv namespace create KV
 [[kv_namespaces]]

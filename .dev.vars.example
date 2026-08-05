@@ -19,3 +19,9 @@ EMAIL_FROM=noreply@kantan-hp.fyi
 # scoped to the kantan-hp.fyi zone only). Required only when the wizard's
 # branded-address checkbox is used; absent → branded flow fails fast.
 CF_ZONE_DNS_TOKEN=
+
+# Cloudflare Turnstile (human verification) on the login form + provisioning.
+# SITEKEY is public (also set as a var in wrangler.toml); SECRET verifies tokens
+# server-side. Empty → widget hidden and verification skipped (dev only).
+TURNSTILE_SITEKEY=
+TURNSTILE_SECRET=

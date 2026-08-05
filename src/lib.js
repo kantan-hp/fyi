@@ -156,6 +156,24 @@ export function normalizeEmail(input) {
   return String(input || '').trim().toLowerCase();
 }
 
+/**
+ * Canonicalize an email for per-email rate-limit keys so aliases can't fork
+ * counters. Builds on normalizeEmail, then collapses Gmail/Googlemail aliases:
+ * dots in the local part and any +tag suffix are stripped (both are ignored by
+ * Gmail delivery). Non-Gmail addresses pass through apart from trim/lowercase.
+ */
+export function canonicalizeEmail(input) {
+  const email = normalizeEmail(input);
+  const at = email.lastIndexOf('@');
+  if (at <= 0) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (domain !== 'gmail.com' && domain !== 'googlemail.com') return email;
+  const plus = local.indexOf('+');
+  const base = plus === -1 ? local : local.slice(0, plus);
+  return `${base.replace(/\./g, '')}@${domain}`;
+}
+
 export function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }

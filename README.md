@@ -75,6 +75,7 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
    npx wrangler secret put RESEND_API_KEY    # free tier is fine
    npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi
    npx wrangler secret put CF_ZONE_DNS_TOKEN # Zone: DNS: Edit, kantan-hp.fyi only — for branded subdomains
+   npx wrangler secret put TURNSTILE_SECRET   # Turnstile siteverify secret (set TURNSTILE_SITEKEY as a var)
    ```
 5. **Enforce https on the zone** (dash.cloudflare.com → kantan-hp.fyi → SSL/TLS):
    - Edge Certificates → **Always Use HTTPS** → On (301 http→https at the edge).

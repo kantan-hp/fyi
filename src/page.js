@@ -85,7 +85,7 @@ tr.site-detail td { padding: 0; }
 .detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
 .detail-reason .err { display: block; }`;
 
-function shell(title, body) {
+function shell(title, body, extraHead = '') {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -93,11 +93,22 @@ function shell(title, body) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${title} — kantan</title>
 <style>${BASE}</style>
+${extraHead}
 </head>
 <body>
 ${body}
 </body>
 </html>`;
+}
+
+function turnstileWidget(sitekey) {
+  if (!sitekey) return '';
+  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-theme="light"></div>';
+}
+
+function turnstileScript(sitekey) {
+  if (!sitekey) return '';
+  return '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></scr' + 'ipt>';
 }
 
 export function welcomePage({ email }) {
@@ -137,7 +148,7 @@ export function welcomePage({ email }) {
   );
 }
 
-export function loginPage({ error } = {}) {
+export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
   return shell(
     'Sign in — kantan',
     `<main class="wrap">
@@ -150,6 +161,7 @@ export function loginPage({ error } = {}) {
         <p>Enter your email and we'll send you a one-time login link.</p>
         <form id="login">
           <input type="email" id="email" placeholder="you@example.com" required autofocus />
+          ${turnstileWidget(turnstileSitekey)}
           <button class="btn" type="submit" style="margin-top:.75rem; width:100%">Email me a login link</button>
         </form>
         <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
@@ -158,6 +170,12 @@ export function loginPage({ error } = {}) {
     <script>
       const form = document.getElementById('login');
       const status = document.getElementById('status');
+      window.onTurnstileSuccess = () => {};
+      window.onTurnstileError = () => {
+        const btn = form.querySelector('button');
+        if (btn) btn.disabled = false;
+        status.innerHTML = '<span class="err">Verification failed — please reload and try again.</span>';
+      };
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = form.querySelector('button');
@@ -166,7 +184,10 @@ export function loginPage({ error } = {}) {
         const r = await fetch('/api/login', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email: document.getElementById('email').value }),
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
+          }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -182,6 +203,7 @@ export function loginPage({ error } = {}) {
         }
       });
     </script>`,
+    turnstileScript(turnstileSitekey),
   );
 }
 
@@ -196,7 +218,7 @@ export function messagePage(title, text) {
   );
 }
 
-export function appPage({ email, sites, hasSites }) {
+export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
   const table = hasSites
     ? `<section class="card" id="sites-card">
         <h2>Your sites</h2>
@@ -295,6 +317,7 @@ export function appPage({ email, sites, hasSites }) {
           <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
         </label>
         <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
+        ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>Create my website</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
@@ -314,6 +337,14 @@ export function appPage({ email, sites, hasSites }) {
     <script>
       const $ = (id) => document.getElementById(id);
       let cfToken = null, cfAccountId = null, ghConnected = false;
+
+      window.onTurnstileSuccess = () => {};
+      window.onTurnstileError = () => {
+        const result = $('result');
+        if (result) {
+          result.innerHTML = '<div class="status err">Verification failed — please reload and try again.</div>';
+        }
+      };
 
       const wizard = $('wizard');
       const newSite = $('new-site');
@@ -448,6 +479,7 @@ export function appPage({ email, sites, hasSites }) {
               cfToken, cfAccountId,
               public: $('site-public').checked,
               branded: $('site-branded').checked,
+              turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
           });
           data = await r.json();
@@ -719,5 +751,6 @@ export function appPage({ email, sites, hasSites }) {
         }
       }
     </script>`,
+    turnstileScript(turnstileSitekey),
   );
 }
