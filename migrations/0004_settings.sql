@@ -12,5 +12,5 @@
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,  -- tunable name, e.g. 'rl.login_email_max'
   value      TEXT NOT NULL,     -- opaque string; parsed by the consuming code
-  updated_at TEXT NOT NULL DEFAULT datetime('now')  -- audit trail for overrides
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))  -- audit trail for overrides
 );
