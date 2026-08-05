@@ -29,6 +29,7 @@ import {
   parseCookies,
   isAllowedSiteOrigin,
   normalizeEmail,
+  canonicalizeEmail,
   isValidEmail,
   randomHex,
   CONFIG_YML_PATH,
@@ -53,11 +54,39 @@ const NONCE_COOKIE = 'kantan_oauth_nonce';
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const WIZARD_MAX_AGE_MS = 15 * 60 * 1000;
 const MAGIC_TTL_SECONDS = 15 * 60;
-const MAGIC_MAX_PER_WINDOW = 3;
-const MAGIC_WINDOW_SECONDS = 15 * 60;
 // The panel's own zone (also in wrangler.toml routes). Not secret; the worker
 // needs it at runtime to create per-site CNAME records with the operator token.
 const CF_ZONE_ID = 'ac38c505c9f1a177a53f023d30f79283';
+
+// Default rate-limit tunables. Overridable per-key in the D1 `settings` table
+// (migration 0004) so limits change without a deploy. Per-IP windows longer
+// than the edge's fixed 10-s burst are enforced app-layer with a bounded
+// in-memory per-isolate map (best-effort, advisory); KV is used only for
+// low-cardinality per-email / per-session keys.
+const RL = {
+  loginEmail: 3,
+  loginEmailWindow: 15 * 60,
+  loginIp: 30,
+  loginIpWindow: 15 * 60,
+  provisionIp: 5,
+  provisionIpWindow: 60 * 60,
+  provisionSession: 2,
+  provisionSessionWindow: 60 * 60,
+  lookupIp: 120,
+  lookupIpWindow: 10 * 60,
+  oauthIp: 30,
+  oauthIpWindow: 10 * 60,
+  loginCallbackIp: 30,
+  loginCallbackIpWindow: 10 * 60,
+  // site check budget is ~3x the site cap so a power user checking all their
+  // sites (plus the update-modal re-check) doesn't self-inflict a 429.
+  siteCheck: 15,
+  siteUpdate: 2,
+  siteWindow: 10 * 60,
+  cfAccountsIp: 20,
+  cfAccountsIpWindow: 10 * 60,
+  siteCap: 5,
+};
 
 export default {
   async fetch(request, env) {
@@ -70,7 +99,7 @@ export default {
         const session = await getSession(request, env);
         return html(welcomePage({ email: session ? session.sub : null }));
       }
-      if (pathname === '/login' && method === 'GET') return html(loginPage());
+      if (pathname === '/login' && method === 'GET') return html(loginPage({}, { turnstileSitekey: env.TURNSTILE_SITEKEY }));
       if (pathname === '/login/callback' && method === 'GET') return loginCallback(request, env);
       if (pathname === '/app' && method === 'GET') return appRoute(request, env);
 
@@ -84,7 +113,7 @@ export default {
       if (pathname === '/api/sites/baseline') return siteBaseline(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
       if (pathname === '/api/wizard/logout') return wizardLogout(request);
-      if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request);
+      if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request, env);
       if (pathname === '/api/provision' && method === 'POST') return provision(request, env);
 
       // OAuth — wizard GitHub connect + shared editor proxy (single callback URL)
@@ -211,19 +240,47 @@ async function assertBrandedSlugAvailable(env, slug) {
 // Email magic-link login
 
 async function loginIssue(request, env) {
-  const { email } = await request.json().catch(() => ({}));
+  const { email, turnstile } = await request.json().catch(() => ({}));
+  // IDENTITY stays normalizeEmail (trim+lowercase) so session.sub / owner_email
+  // keep matching existing sites registered under Gmail dot/+tag addresses;
+  // canonicalizeEmail is used ONLY for the rate-limit key below.
   const normalized = normalizeEmail(email);
+  const canonical = canonicalizeEmail(email);
   if (!isValidEmail(normalized)) {
     return json({ ok: false, error: 'Enter a valid email address.' }, 400);
   }
 
-  const rlKey = `rl:login:${normalized}`;
-  const rl = JSON.parse((await env.KV.get(rlKey)) || '{"count":0}');
-  if (rl.count >= MAGIC_MAX_PER_WINDOW) {
-    return json({ ok: false, error: 'Too many login links. Try again in a few minutes.' }, 429);
+  // Turnstile first — fail CLOSED on a missing/invalid token (a scripted client
+  // that never renders the widget gets no free pass); only a siteverify outage
+  // fails open.
+  const ts = await verifyTurnstile(env, turnstile);
+  if (!ts.ok) return turnstileResponse(ts);
+
+  // Per-IP advisory brake (in-memory, longer window than the edge's 10 s).
+  if (
+    !ipRateLimit(
+      request,
+      'login',
+      await getLimit(env, 'rl.login_ip_max', RL.loginIp),
+      await getLimit(env, 'rl.login_ip_window', RL.loginIpWindow),
+    )
+  ) {
+    return rateLimited('login-ip', 'Too many requests from this network — try again in a few minutes.');
   }
-  rl.count += 1;
-  await env.KV.put(rlKey, JSON.stringify(rl), { expirationTtl: MAGIC_WINDOW_SECONDS });
+
+  // Per-email counter on the CANONICALIZED address so Gmail dots/+tags can't
+  // fork it (low-cardinality key, KV).
+  if (
+    !(await kvRateLimit(
+      env,
+      'login',
+      canonical,
+      await getLimit(env, 'rl.login_email_max', RL.loginEmail),
+      await getLimit(env, 'rl.login_email_window', RL.loginEmailWindow),
+    ))
+  ) {
+    return rateLimited('login-email', 'Too many login links. Try again in a few minutes.');
+  }
 
   const code = randomHex(16);
   await env.KV.put(`magic:${code}`, normalized, { expirationTtl: MAGIC_TTL_SECONDS });
@@ -267,11 +324,16 @@ async function sendMagicEmail(env, email, link) {
 }
 
 async function loginCallback(request, env) {
+  // Browser navigation (magic link click) — an HTML 429, not raw JSON.
+  if (!ipRateLimit(request, 'login-callback', await getLimit(env, 'rl.login_callback_ip_max', RL.loginCallbackIp), await getLimit(env, 'rl.login_callback_ip_window', RL.loginCallbackIpWindow))) {
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'login-callback-ip', t: Date.now() }));
+    return html(loginPage({ error: 'Too many logins from this network — try again in a few minutes.' }, { turnstileSitekey: env.TURNSTILE_SITEKEY }), 429);
+  }
   const code = new URL(request.url).searchParams.get('code') || '';
   const key = `magic:${code}`;
   const email = await env.KV.get(key);
   if (!email) {
-    return html(loginPage({ error: 'This login link is invalid or has expired. Request a new one.' }), 400);
+    return html(loginPage({ error: 'This login link is invalid or has expired. Request a new one.' }, { turnstileSitekey: env.TURNSTILE_SITEKEY }), 400);
   }
   await env.KV.delete(key); // single-use
   const session = await signPayload(env.SESSION_SECRET, { sub: email, ts: Date.now() });
@@ -303,7 +365,7 @@ async function appRoute(request, env) {
   const session = await getSession(request, env);
   if (!session) return redirect('/login');
   const sites = await getSitesByEmail(env, session.sub);
-  return html(appPage({ email: session.sub, sites, hasSites: sites.length > 0 }));
+  return html(appPage({ email: session.sub, sites, hasSites: sites.length > 0 }, { turnstileSitekey: env.TURNSTILE_SITEKEY }));
 }
 
 async function listSites(request, env) {
@@ -332,6 +394,11 @@ function wizardLogout(request) {
 
 async function oauthStart(request, env, flow) {
   if (!env.GITHUB_CLIENT_ID) return text('GITHUB_CLIENT_ID is not configured on the worker.', 500);
+  // Browser navigation — an HTML 429, not raw JSON.
+  if (!ipRateLimit(request, 'oauth', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-ip', t: Date.now() }));
+    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
+  }
   const nonce = crypto.randomUUID();
   const state = await signPayload(env.SESSION_SECRET, { flow, nonce });
   const redirectUrl = new URL('https://github.com/login/oauth/authorize');
@@ -366,6 +433,13 @@ async function exchangeCode(env, code) {
 }
 
 async function oauthCallback(request, env) {
+  // Browser navigation (GitHub redirect) — an HTML 429, not raw JSON. Reads the
+  // same documented rl.oauth_ip_* tunables as oauthStart so tuning the pair
+  // affects the whole OAuth round-trip.
+  if (!ipRateLimit(request, 'oauth-callback', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-callback-ip', t: Date.now() }));
+    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
+  }
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = await verifyPayload(env.SESSION_SECRET, url.searchParams.get('state'));
@@ -527,9 +601,164 @@ async function cf(token, path, { method = 'GET', body } = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
+// Layered rate limiting (plan: layered rate limiting with Cloudflare tooling).
+//
+// Three layers:
+//   1. Edge WAF rate-limit rule (Cloudflare dashboard, free tier): one broad
+//      burst guard on /api/* + /oauth/*, ~100 req/10 s/IP, Block. Fixed 10-s
+//      window — burst-only, can't express longer windows on the free tier.
+//   2. Turnstile on the login form + provisioning step, verified server-side:
+//      fail CLOSED on a missing/invalid token, fail open ONLY when siteverify
+//      itself is unreachable/5xx (narrow service-outage carve-out), and log it.
+//   3. App-level per-identity limits: KV for low-cardinality per-email /
+//      per-session keys (.catch()-wrapped, fail-open), and a bounded in-memory
+//      per-isolate map for advisory per-IP windows > 10 s.
+// Observed hits are logged (non-PII) for tuning.
+
+/** The client's real IP as seen by Cloudflare (never client-spoofable). */
+function clientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || 'unknown';
+}
+
+// Isolate-scoped cache for settings reads (tunables change rarely; avoids a D1
+// round-trip per gate per request). 30-s TTL.
+const LIMIT_CACHE = new Map();
+const LIMIT_CACHE_TTL = 30 * 1000;
+
+/** D1 settings-table tunable; falls back to the code default if unset/errored. */
+async function getLimit(env, key, fallback) {
+  const now = Date.now();
+  const cached = LIMIT_CACHE.get(key);
+  if (cached && cached.expires > now) return cached.value;
+  let value = fallback;
+  try {
+    const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
+    if (row && String(row.value).trim()) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n >= 0) value = n;
+    }
+  } catch {
+    // settings table missing/errored — keep the code default
+  }
+  if (LIMIT_CACHE.size > 512) LIMIT_CACHE.clear();
+  LIMIT_CACHE.set(key, { value, expires: now + LIMIT_CACHE_TTL });
+  return value;
+}
+
+/**
+ * KV rate-limit counter for low-cardinality per-email / per-session identities.
+ * read-modify-write can race (fine for soft abuse control, not hard caps);
+ * a KV failure fails OPEN so an outage never locks out the panel — but it is
+ * logged (non-PII) so silent budget exhaustion is visible.
+ */
+async function kvRateLimit(env, name, identity, max, windowSeconds) {
+  const key = `rl:${name}:${identity}`;
+  try {
+    const cur = JSON.parse((await env.KV.get(key)) || '{"count":0}');
+    if (cur.count >= max) return false;
+    cur.count += 1;
+    await env.KV.put(key, JSON.stringify(cur), { expirationTtl: windowSeconds });
+    return true;
+  } catch {
+    console.log(JSON.stringify({ ev: 'kv-rate-limit-fail-open', rule: name, t: Date.now() }));
+    return true;
+  }
+}
+
+// Bounded per-isolate in-memory soft limiter for advisory per-IP windows.
+// Cloudflare routes a client across isolates, so recall is partial — that is
+// acceptable for an advisory limit; the authoritative caps are per-identity.
+const IP_LIMITS = new Map();
+function ipRateLimit(request, name, max, windowSeconds) {
+  const key = `${name}:${clientIp(request)}`;
+  const now = Date.now();
+  const windowMs = windowSeconds * 1000;
+  const entry = IP_LIMITS.get(key);
+  if (!entry || entry.expires <= now) {
+    if (IP_LIMITS.size > 50000) {
+      // Bound the map: sweep expired entries, then evict a ~25% sample of the
+      // oldest rather than clear() (a full clear would reset every active
+      // window on the isolate, including legit users', at the moment a wide-IP
+      // flood is being absorbed).
+      for (const [k, v] of IP_LIMITS) if (v.expires <= now) IP_LIMITS.delete(k);
+      if (IP_LIMITS.size > 50000) {
+        const keys = [...IP_LIMITS.keys()].slice(0, Math.floor(IP_LIMITS.size / 4));
+        for (const k of keys) IP_LIMITS.delete(k);
+      }
+    }
+    IP_LIMITS.set(key, { count: 1, expires: now + windowMs });
+    return true;
+  }
+  if (entry.count >= max) return false;
+  entry.count += 1;
+  return true;
+}
+
+/**
+ * Verify a Turnstile token server-side. Fail CLOSED on a missing/invalid token;
+ * fail OPEN only when the siteverify endpoint is unreachable OR returns a 5xx
+ * (a Cloudflare-wide Turnstile incident must not lock the whole panel) — and log
+ * those events. A SITEKEY/SECRET pairing mismatch is a deployment misconfig and
+ * is surfaced as such instead of silently skipping verification or locking out.
+ */
+async function verifyTurnstile(env, token) {
+  const { TURNSTILE_SITEKEY, TURNSTILE_SECRET } = env;
+  if (!TURNSTILE_SITEKEY && !TURNSTILE_SECRET) {
+    // Human verification is off (local dev). Log it so a production deployment
+    // that forgot both vars is visible instead of silently running without it.
+    console.log(JSON.stringify({ ev: 'turnstile-unconfigured', t: Date.now() }));
+    return { ok: true, unavailable: true };
+  }
+  if (!TURNSTILE_SITEKEY || !TURNSTILE_SECRET) {
+    console.log(JSON.stringify({ ev: 'turnstile-misconfig', t: Date.now() }));
+    return { ok: false, misconfig: true, reason: 'turnstile-misconfigured' };
+  }
+  if (!token) return { ok: false, reason: 'verification-token-missing' };
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret: TURNSTILE_SECRET, response: token }),
+    });
+    if (res.status >= 500) {
+      console.log(JSON.stringify({ ev: 'turnstile-fail-open', status: res.status, t: Date.now() }));
+      return { ok: true, unavailable: true };
+    }
+    const data = await res.json().catch(() => ({}));
+    return data.success === true ? { ok: true } : { ok: false, reason: 'verification-failed' };
+  } catch {
+    console.log(JSON.stringify({ ev: 'turnstile-fail-open', t: Date.now() }));
+    return { ok: true, unavailable: true };
+  }
+}
+
+/** Response for a failed Turnstile check — misconfig vs user-actionable. */
+function turnstileResponse(ts) {
+  if (ts.misconfig) {
+    return json({ ok: false, error: 'The panel is not configured for verification (Turnstile sitekey/secret mismatch) — contact the operator.' }, 500);
+  }
+  return json({ ok: false, error: 'Please complete the verification box and try again.' }, 400);
+}
+
+/** 429 response + non-PII observability line for a rate-limit hit. */
+function rateLimited(rule, message) {
+  console.log(JSON.stringify({ ev: 'rate-limited', rule, t: Date.now() }));
+  return json({ ok: false, error: message || 'Too many requests — try again shortly.' }, 429);
+}
+
+/** Count of sites a GitHub login already owns (the hard provisioning cap). */
+async function siteCountForLogin(env, login) {
+  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM sites WHERE owner_login = ?').bind(login).first();
+  return (row && row.n) || 0;
+}
+
+// ---------------------------------------------------------------------------
 // Cloudflare account lookup (wizard step 2)
 
-async function cfAccounts(request) {
+async function cfAccounts(request, env) {
+  if (!ipRateLimit(request, 'cf-accounts', await getLimit(env, 'rl.cf_accounts_ip_max', RL.cfAccountsIp), await getLimit(env, 'rl.cf_accounts_ip_window', RL.cfAccountsIpWindow))) {
+    return rateLimited('cf-accounts-ip');
+  }
   const { token } = await request.json().catch(() => ({}));
   if (!token) return json({ error: 'token required' }, 400);
   try {
@@ -545,6 +774,9 @@ async function cfAccounts(request) {
 // origin belong to a provisioned site, and which repo backs it?
 
 async function decapLookup(request, env) {
+  if (!ipRateLimit(request, 'lookup', await getLimit(env, 'rl.lookup_ip_max', RL.lookupIp), await getLimit(env, 'rl.lookup_ip_window', RL.lookupIpWindow))) {
+    return rateLimited('lookup-ip');
+  }
   const origin = new URL(request.url).searchParams.get('origin') || '';
   if (!isAllowedSiteOrigin(origin)) return json({ error: 'origin not allowed' }, 403);
   // A branded site's canonical origin is the lookup key; its legacy pages.dev
@@ -570,6 +802,7 @@ async function provision(request, env) {
     cfAccountId,
     public: sitePublic = false,
     branded: siteBranded = false,
+    turnstile,
   } = await request.json().catch(() => ({}));
   const steps = [];
   const ok = (name, detail) => steps.push({ name, ok: true, detail });
@@ -609,12 +842,31 @@ async function provision(request, env) {
   };
 
   try {
+    // Cheap input validation runs BEFORE the rate-limit gates so a user
+    // experimenting with names (reserved/short) never burns the creation budget.
     const slug = slugifySiteName(siteName);
     if (!slug) throw new Error('Invalid site name — use letters, numbers and dashes (e.g. "my-blog").');
     if (!cfToken) throw new Error('Cloudflare API token is required.');
     const branded = siteBranded === true;
     if (branded && !env.CF_ZONE_DNS_TOKEN) {
       throw new Error('Branded subdomains are not configured on this panel (CF_ZONE_DNS_TOKEN missing) — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
+    }
+
+    // Rate-limit gates run after validation but BEFORE anything is created, so
+    // a rejected request never leaves partial resources. Turnstile first
+    // (fail-closed); then per-IP + per-session soft brakes; then the hard
+    // per-GitHub-login site cap.
+    const ts = await verifyTurnstile(env, turnstile);
+    if (!ts.ok) return turnstileResponse(ts);
+    if (!ipRateLimit(request, 'provision', await getLimit(env, 'rl.provision_ip_max', RL.provisionIp), await getLimit(env, 'rl.provision_ip_window', RL.provisionIpWindow))) {
+      return rateLimited('provision-ip', 'Too many sites from this network — try again in an hour.');
+    }
+    if (!(await kvRateLimit(env, 'provision', wizard.login, await getLimit(env, 'rl.provision_session_max', RL.provisionSession), await getLimit(env, 'rl.provision_session_window', RL.provisionSessionWindow)))) {
+      return rateLimited('provision-session', 'You\'ve created sites very recently — try again in an hour.');
+    }
+    const siteCap = await getLimit(env, 'rl.site_cap', RL.siteCap);
+    if ((await siteCountForLogin(env, wizard.login)) >= siteCap) {
+      return rateLimited('site-cap', `You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
     }
     const ghT = wizard.t;
     const login = wizard.login;
@@ -848,13 +1100,28 @@ async function provision(request, env) {
       // 9. Register the site in D1 (drives the site list and the editor origin
       //    check). Branded sites get the branded canonical origin + deploy_url;
       //    pages.dev-only sites keep origin = pages.dev and deploy_url = NULL.
+      //    The INSERT is a single-statement CONDITIONAL insert — atomic in D1 —
+      //    as the hard backstop on the per-GitHub-login site cap (the count was
+      //    already checked before any resource was created; this closes the race
+      //    window during the long provisioning flow).
       const origin = branded ? `https://${slug}.kantan-hp.fyi` : pagesDevUrl;
       const deployUrl = branded ? pagesDevUrl : null;
-      await env.DB.prepare(
-        'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, deploy_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      const insert = await env.DB.prepare(
+        'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, deploy_url, created_at) ' +
+          'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? ' +
+          'WHERE (SELECT COUNT(*) FROM sites WHERE owner_login = ?) < ?',
       )
-        .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, deployUrl, new Date().toISOString())
+        .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, deployUrl, new Date().toISOString(), login, siteCap)
         .run();
+      if ((insert.meta && insert.meta.changes) !== 1) {
+        // The cap was hit mid-flight (concurrent provision). Nothing to keep:
+        // the repo/project/DNS were created for a site the registry refused.
+        // The enclosing catch runs rollback() exactly once.
+        throw Object.assign(
+          new Error(`You already have ${siteCap} sites on kantan — that's the current per-account limit.`),
+          { status: 429 },
+        );
+      }
       created.origin = origin;
       ok('site-registered', origin);
 
@@ -887,7 +1154,7 @@ async function provision(request, env) {
     }
   } catch (err) {
     fail('error', String((err && err.message) || err));
-    return json({ ok: false, error: String((err && err.message) || err), steps }, 400);
+    return json({ ok: false, error: String((err && err.message) || err), steps }, err && err.status ? err.status : 400);
   }
 }
 
@@ -1019,6 +1286,11 @@ async function siteUpdateCheck(request, env) {
   if (!session) return json({ error: 'not logged in' }, 401);
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub to check for updates.', connectUrl: '/auth/github' }, 401);
+  // These endpoints spend ~5-15 GitHub API calls each on the user's token; cap
+  // them per-email so a stuck client (or stolen session) can't burn the budget.
+  if (!(await kvRateLimit(env, 'site-check', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_check_max', RL.siteCheck), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-check');
+  }
   const { origin } = await request.json().catch(() => ({}));
   const site = await getSiteByOrigin(env, origin);
   if (!site) return json({ error: 'unknown site' }, 404);
@@ -1048,6 +1320,9 @@ async function siteUpdate(request, env) {
   if (!session) return json({ error: 'not logged in' }, 401);
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub to update.', connectUrl: '/auth/github' }, 401);
+  if (!(await kvRateLimit(env, 'site-update', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_update_max', RL.siteUpdate), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-update');
+  }
   const { origin, confirmMajor = false } = await request.json().catch(() => ({}));
   const site = await getSiteByOrigin(env, origin);
   if (!site) return json({ error: 'unknown site' }, 404);
@@ -1187,6 +1462,10 @@ async function siteBaseline(request, env) {
   if (!session) return json({ error: 'not logged in' }, 401);
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub to set a baseline.', connectUrl: '/auth/github' }, 401);
+  // Same GitHub-budget family as check/update (~7 calls) — cap it the same way.
+  if (!(await kvRateLimit(env, 'site-baseline', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_check_max', RL.siteCheck), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-baseline', 'Too many baseline requests — try again in a few minutes.');
+  }
   const { origin } = await request.json().catch(() => ({}));
   const site = await getSiteByOrigin(env, origin);
   if (!site) return json({ error: 'unknown site' }, 404);

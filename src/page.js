@@ -85,7 +85,7 @@ tr.site-detail td { padding: 0; }
 .detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
 .detail-reason .err { display: block; }`;
 
-function shell(title, body) {
+function shell(title, body, extraHead = '') {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -93,11 +93,22 @@ function shell(title, body) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${title} — kantan</title>
 <style>${BASE}</style>
+${extraHead}
 </head>
 <body>
 ${body}
 </body>
 </html>`;
+}
+
+function turnstileWidget(sitekey) {
+  if (!sitekey) return '';
+  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-theme="light"></div>';
+}
+
+function turnstileScript(sitekey) {
+  if (!sitekey) return '';
+  return '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></scr' + 'ipt>';
 }
 
 export function welcomePage({ email }) {
@@ -137,7 +148,7 @@ export function welcomePage({ email }) {
   );
 }
 
-export function loginPage({ error } = {}) {
+export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
   return shell(
     'Sign in — kantan',
     `<main class="wrap">
@@ -150,6 +161,7 @@ export function loginPage({ error } = {}) {
         <p>Enter your email and we'll send you a one-time login link.</p>
         <form id="login">
           <input type="email" id="email" placeholder="you@example.com" required autofocus />
+          ${turnstileWidget(turnstileSitekey)}
           <button class="btn" type="submit" style="margin-top:.75rem; width:100%">Email me a login link</button>
         </form>
         <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
@@ -158,20 +170,50 @@ export function loginPage({ error } = {}) {
     <script>
       const form = document.getElementById('login');
       const status = document.getElementById('status');
+      const loginBtn = form.querySelector('button');
+      const tsWidget = document.querySelector('.cf-turnstile');
+      // With a widget present, hold the submit until Turnstile reports success
+      // (managed widget) so a half-solved captcha never hits the server's
+      // fail-closed path with a misleading "Too many requests" message.
+      let turnstileOk = !tsWidget;
+      const updateLoginBtn = () => { if (loginBtn) loginBtn.disabled = !turnstileOk; };
+      window.onTurnstileSuccess = () => { turnstileOk = true; updateLoginBtn(); };
+      window.onTurnstileError = () => {
+        turnstileOk = false;
+        updateLoginBtn();
+        status.innerHTML = '<span class="err">Verification failed — please reload and try again.</span>';
+      };
+      updateLoginBtn();
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const btn = form.querySelector('button');
+        const btn = loginBtn;
+        if (tsWidget && !turnstileOk) {
+          status.innerHTML = '<span class="err">Please complete the verification box first.</span>';
+          return;
+        }
         btn.disabled = true;
         status.innerHTML = '<span class="muted">Sending…</span>';
         const r = await fetch('/api/login', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email: document.getElementById('email').value }),
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
+          }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
           status.innerHTML = '<span class="err">' + (data.error || 'Could not send the link.') + '</span>';
-          btn.disabled = false;
+          // Turnstile tokens are single-use; after any rejection reset the
+          // widget so the user can re-solve instead of being stuck on a
+          // consumed token.
+          if (tsWidget && window.turnstile) {
+            window.turnstile.reset(tsWidget);
+            turnstileOk = false;
+            updateLoginBtn();
+          } else {
+            btn.disabled = false;
+          }
           return;
         }
         status.innerHTML = '<span class="ok">✓ Check your inbox — the link expires in 15 minutes.</span>';
@@ -180,8 +222,16 @@ export function loginPage({ error } = {}) {
             '<br><span class="muted" style="font-size:.8rem">No email provider configured (dev mode). Link:</span>' +
             '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
         }
+        // The token was consumed by the successful verification; reset so the
+        // user can send to a different address without reloading the page.
+        if (tsWidget && window.turnstile) {
+          window.turnstile.reset(tsWidget);
+          turnstileOk = false;
+          updateLoginBtn();
+        }
       });
     </script>`,
+    turnstileScript(turnstileSitekey),
   );
 }
 
@@ -196,7 +246,7 @@ export function messagePage(title, text) {
   );
 }
 
-export function appPage({ email, sites, hasSites }) {
+export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
   const table = hasSites
     ? `<section class="card" id="sites-card">
         <h2>Your sites</h2>
@@ -295,6 +345,7 @@ export function appPage({ email, sites, hasSites }) {
           <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
         </label>
         <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
+        ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>Create my website</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
@@ -314,6 +365,20 @@ export function appPage({ email, sites, hasSites }) {
     <script>
       const $ = (id) => document.getElementById(id);
       let cfToken = null, cfAccountId = null, ghConnected = false;
+      const tsWidget = document.querySelector('.cf-turnstile');
+      // With a widget present, hold Create until Turnstile reports success so a
+      // half-solved captcha never hits the server's fail-closed path.
+      let turnstileOk = !tsWidget;
+
+      window.onTurnstileSuccess = () => { turnstileOk = true; refreshCreateButton(); };
+      window.onTurnstileError = () => {
+        turnstileOk = false;
+        refreshCreateButton();
+        const result = $('result');
+        if (result) {
+          result.innerHTML = '<div class="status err">Verification failed — please reload and try again.</div>';
+        }
+      };
 
       const wizard = $('wizard');
       const newSite = $('new-site');
@@ -323,8 +388,19 @@ export function appPage({ email, sites, hasSites }) {
       };
 
       function refreshCreateButton() {
-        $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim());
+        $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim() && turnstileOk);
       }
+
+      // Turnstile tokens are single-use; after a failed submit the widget must
+      // be reset so the user can re-solve instead of being stuck on a consumed
+      // token. Returns the button to the gated state.
+      const resetTurnstile = () => {
+        if (tsWidget && window.turnstile) {
+          window.turnstile.reset(tsWidget);
+          turnstileOk = false;
+          refreshCreateButton();
+        }
+      };
 
       async function init() {
         const r = await fetch('/api/wizard/me');
@@ -448,6 +524,7 @@ export function appPage({ email, sites, hasSites }) {
               cfToken, cfAccountId,
               public: $('site-public').checked,
               branded: $('site-branded').checked,
+              turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
           });
           data = await r.json();
@@ -462,6 +539,7 @@ export function appPage({ email, sites, hasSites }) {
             '. Your site may be partially created; check GitHub and retry.';
           $('result').appendChild(div);
           $('create').disabled = false;
+          resetTurnstile();
           return;
         }
         stopBar();
@@ -486,6 +564,7 @@ export function appPage({ email, sites, hasSites }) {
           div.textContent = data.error || 'Provisioning failed.';
           $('result').appendChild(div);
           $('create').disabled = false;
+          resetTurnstile();
         }
       };
 
@@ -719,5 +798,6 @@ export function appPage({ email, sites, hasSites }) {
         }
       }
     </script>`,
+    turnstileScript(turnstileSitekey),
   );
 }

@@ -13,6 +13,7 @@ import {
   b64encode,
   b64decode,
   normalizeEmail,
+  canonicalizeEmail,
   isValidEmail,
   randomHex,
 } from '../src/lib.js';
@@ -110,6 +111,17 @@ test('b64 roundtrip with unicode', () => {
 test('normalizeEmail trims and lowercases', () => {
   assert.equal(normalizeEmail('  User@Example.COM  '), 'user@example.com');
   assert.equal(normalizeEmail(''), '');
+});
+
+test('canonicalizeEmail collapses Gmail dot/+tag aliases', () => {
+  assert.equal(canonicalizeEmail('V.IC.T+tag@gmail.com'), 'vict@gmail.com');
+  assert.equal(canonicalizeEmail('foo.bar@googlemail.com'), 'foobar@gmail.com');
+  assert.equal(canonicalizeEmail('foo+tag@googlemail.com'), 'foo@gmail.com');
+});
+
+test('canonicalizeEmail leaves non-Gmail and plain addresses unchanged', () => {
+  assert.equal(canonicalizeEmail('foo+tag@example.com'), 'foo+tag@example.com');
+  assert.equal(canonicalizeEmail('  User@Example.COM  '), 'user@example.com');
 });
 
 test('isValidEmail', () => {
