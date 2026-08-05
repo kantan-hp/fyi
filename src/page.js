@@ -103,7 +103,10 @@ ${body}
 
 function turnstileWidget(sitekey) {
   if (!sitekey) return '';
-  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-theme="light"></div>';
+  // appearance=interaction-only: hidden by default; only rendered when
+  // Cloudflare decides an interaction (challenge) is required. onTurnstileExpired
+  // re-runs the check when the 300-s token lapses.
+  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-appearance="interaction-only" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-expired-callback="onTurnstileExpired" data-theme="light"></div>';
 }
 
 function turnstileScript(sitekey) {
@@ -173,16 +176,27 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
       const loginBtn = form.querySelector('button');
       const tsWidget = document.querySelector('.cf-turnstile');
       // With a widget present, hold the submit until Turnstile reports success
-      // (managed widget) so a half-solved captcha never hits the server's
-      // fail-closed path with a misleading "Too many requests" message.
+      // so a half-solved captcha never hits the server's fail-closed path with
+      // a misleading "Too many requests" message. The widget is hidden
+      // (interaction-only) and auto-runs on load; it only appears when a real
+      // challenge is required.
       let turnstileOk = !tsWidget;
       const updateLoginBtn = () => { if (loginBtn) loginBtn.disabled = !turnstileOk; };
+      const rerunTurnstile = () => {
+        if (tsWidget && window.turnstile) {
+          window.turnstile.reset(tsWidget);
+          window.turnstile.execute(tsWidget);
+          turnstileOk = false;
+          updateLoginBtn();
+        }
+      };
       window.onTurnstileSuccess = () => { turnstileOk = true; updateLoginBtn(); };
       window.onTurnstileError = () => {
         turnstileOk = false;
         updateLoginBtn();
         status.innerHTML = '<span class="err">Verification failed — please reload and try again.</span>';
       };
+      window.onTurnstileExpired = () => rerunTurnstile();
       updateLoginBtn();
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -204,16 +218,11 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
           status.innerHTML = '<span class="err">' + (data.error || 'Could not send the link.') + '</span>';
-          // Turnstile tokens are single-use; after any rejection reset the
+          // Turnstile tokens are single-use; after any rejection re-run the
           // widget so the user can re-solve instead of being stuck on a
           // consumed token.
-          if (tsWidget && window.turnstile) {
-            window.turnstile.reset(tsWidget);
-            turnstileOk = false;
-            updateLoginBtn();
-          } else {
-            btn.disabled = false;
-          }
+          rerunTurnstile();
+          if (!(tsWidget && window.turnstile)) btn.disabled = false;
           return;
         }
         status.innerHTML = '<span class="ok">✓ Check your inbox — the link expires in 15 minutes.</span>';
@@ -224,11 +233,7 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
         }
         // The token was consumed by the successful verification; reset so the
         // user can send to a different address without reloading the page.
-        if (tsWidget && window.turnstile) {
-          window.turnstile.reset(tsWidget);
-          turnstileOk = false;
-          updateLoginBtn();
-        }
+        rerunTurnstile();
       });
     </script>`,
     turnstileScript(turnstileSitekey),
@@ -385,6 +390,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           result.innerHTML = '<div class="status err">Verification failed — please reload and try again.</div>';
         }
       };
+      window.onTurnstileExpired = () => resetTurnstile();
 
       const wizard = $('wizard');
       const newSite = $('new-site');
@@ -397,12 +403,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim() && turnstileOk);
       }
 
-      // Turnstile tokens are single-use; after a failed submit the widget must
-      // be reset so the user can re-solve instead of being stuck on a consumed
-      // token. Returns the button to the gated state.
+      // Turnstile tokens are single-use and expire after 300 s; after a failed
+      // submit (consumed token) or an expiry, reset AND re-execute the widget so
+      // a fresh token is issued (the success callback re-enables Create).
+      // Returns the button to the gated state.
       const resetTurnstile = () => {
         if (tsWidget && window.turnstile) {
           window.turnstile.reset(tsWidget);
+          window.turnstile.execute(tsWidget);
           turnstileOk = false;
           refreshCreateButton();
         }

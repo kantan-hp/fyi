@@ -28,6 +28,17 @@ test('loginPage inline scripts parse (with and without sitekey)', () => {
   assert.ok(parseInlineScripts(loginPage({})) >= 1);
 });
 
+test('Turnstile widget is hidden unless a challenge is required (interaction-only)', () => {
+  const withKey = loginPage({}, { turnstileSitekey: '0x4AAAAAAA-test' });
+  assert.ok(withKey.includes('data-appearance="interaction-only"'));
+  assert.ok(withKey.includes('data-expired-callback="onTurnstileExpired"'));
+  // No sitekey → no widget div rendered (the script's selector strings remain,
+  // but the widget container itself must be absent)
+  assert.ok(!loginPage({}).includes('class="cf-turnstile"'));
+  const app = appPage({ email: 'a@b.co', sites: [], hasSites: false }, { turnstileSitekey: '0x4AAAAAAA-test' });
+  assert.ok(app.includes('data-appearance="interaction-only"'));
+});
+
 test('appPage inline scripts parse (with sites, with and without sitekey)', () => {
   const sites = [
     { origin: 'https://my-blog.pages.dev', repo: 'me/my-blog', created_at: '2026-08-01' },
