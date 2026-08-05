@@ -245,15 +245,15 @@ const ui = {
     welcomeIntro:
       'kantan（かんたん）は「シンプル」という意味です。メールアドレスだけでサインインすると、GitHub リポジトリ・ホスティング・エディターを自動で用意します。',
     welcomeHow: '仕組み',
-    welcomeStep1: 'メールアドレスでサインイン — パスワードも GitHub ログインも不要です。',
+    welcomeStep1: 'メールアドレスでログイン — パスワードも GitHub ログインも不要です。',
     welcomeStep2: 'GitHub + Cloudflare を接続 — Cloudflare トークンを1つ貼るだけで、あとはすべて作成します。',
     welcomeStep3: '書いて公開 — 使いやすいエディターで記事を編集。保存するたびにサイトが再ビルドされます。',
     welcomeKeys: 'キーはあなたのもの',
     welcomeKeysBody:
       'kantan は GitHub や Cloudflare の認証情報を一切保存しません。サイト作成の数秒間だけ使用し、あなたのリポジトリにデプロイ用シークレットとして書き込んだ後、破棄されます。いつでも失効・再発行できます。',
 
-    loginTitle: 'サインイン — kantan',
-    signIn: 'サインイン',
+    loginTitle: 'ログイン — kantan',
+    signIn: 'ログイン',
     signInBody: 'メールアドレスを入力すると、ワンタイムのログインリンクをお送りします。',
     emailPlaceholder: 'you@example.com',
     emailMeLink: 'ログインリンクを送信',
@@ -306,11 +306,11 @@ const ui = {
     repo: 'リポジトリ:',
     site: 'サイト:',
     editor: 'エディター:',
-    meanwhileLive: 'その間、こちらで公開されています:',
+    meanwhileLive: 'その間はこちらでもアクセスできます:',
 
     somethingWentWrong: '問題が発生しました',
     couldNotReachPanel: 'パネルに接続できませんでした: ',
-    notSignedIn: 'サインインしていません。',
+    notSignedIn: 'ログインしていません。',
     requestFailed: 'リクエストに失敗しました（',
     couldNotCheck: '確認できませんでした — 「確認」をクリックして再試行してください。',
     ghConnectCancelled: 'GitHub 接続がキャンセルまたは失敗しました — 「確認」をクリックして再試行してください。',
@@ -380,7 +380,7 @@ const ui = {
     welcomeTitle: 'kantan — 數分鐘內發布部落格',
     welcomeOpen: '開啟儀表板',
     welcomeGetStarted: '開始使用',
-    welcomeH1: '免費部落格，真的能在數分鐘內發布。',
+    welcomeH1: '免費部落格，真的能在幾分鐘內發布。',
     welcomeIntro:
       'kantan（かんたん）就是「簡單」。只要用電子郵件登入，kantan 就會自動幫你準備好 GitHub 儲存庫、主機與編輯器。',
     welcomeHow: '運作方式',
@@ -444,7 +444,7 @@ const ui = {
     repo: '儲存庫：',
     site: '網站：',
     editor: '編輯器：',
-    meanwhileLive: '同時，這裡已可存取：',
+    meanwhileLive: '同時，這裡也可存取：',
 
     somethingWentWrong: '發生錯誤',
     couldNotReachPanel: '無法連線到面板：',
@@ -492,7 +492,7 @@ const ui = {
 
   'zh-Hans': {
     navDashboard: '仪表板',
-    navLogout: '退出',
+    navLogout: '退出登录',
     navBack: '返回',
     backToKantan: '返回 kantan',
     switchLanguage: '选择语言',
@@ -581,7 +581,7 @@ const ui = {
     repo: '仓库：',
     site: '网站：',
     editor: '编辑器：',
-    meanwhileLive: '同时，这里已可访问：',
+    meanwhileLive: '同时，这里也可访问：',
 
     somethingWentWrong: '发生错误',
     couldNotReachPanel: '无法连接到面板：',
