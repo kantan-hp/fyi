@@ -319,7 +319,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
            detect your account automatically; the token is used once to create your site
            and is never stored here.</p>
         <input type="password" id="cf-token" placeholder="Cloudflare API token" autocomplete="off" />
-        <button class="btn" id="cf-verify">Verify token</button>
+        <button class="btn" id="cf-verify" style="margin-top:.75rem">Verify token</button>
         <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
           <label style="font-size:.8rem; color:#555" for="cf-account">Cloudflare account</label>
           <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
