@@ -337,12 +337,18 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
            <code>&lt;name&gt;.pages.dev</code></p>
         <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
         <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
-          <input type="checkbox" id="site-public" /> Make this repository public
-          <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
+          <input type="checkbox" id="site-public" />
+          <span style="display:flex; flex-direction:column; gap:.1rem">
+            Make this repository public
+            <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
+          </span>
         </label>
         <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
-          <input type="checkbox" id="site-branded" checked /> Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
-          <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+          <input type="checkbox" id="site-branded" checked />
+          <span style="display:flex; flex-direction:column; gap:.1rem">
+            Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
+            <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+          </span>
         </label>
         <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
         ${turnstileWidget(turnstileSitekey)}
