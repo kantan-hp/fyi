@@ -547,7 +547,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         if (data.ok) {
           setBar('100%', 'ok');
           const meanwhile = (data.site.pagesDevUrl && data.site.pagesDevUrl !== data.site.url)
-            ? '<br>Meanwhile it\'s live at: <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
+            ? '<br>Meanwhile it\\'s live at: <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
             : '';
           $('result').innerHTML =
             '<div class="result"><strong>Your site is being built.</strong><br>' +
