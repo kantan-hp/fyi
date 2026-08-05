@@ -222,6 +222,13 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
             '<br><span class="muted" style="font-size:.8rem">No email provider configured (dev mode). Link:</span>' +
             '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
         }
+        // The token was consumed by the successful verification; reset so the
+        // user can send to a different address without reloading the page.
+        if (tsWidget && window.turnstile) {
+          window.turnstile.reset(tsWidget);
+          turnstileOk = false;
+          updateLoginBtn();
+        }
       });
     </script>`,
     turnstileScript(turnstileSitekey),

@@ -241,7 +241,11 @@ async function assertBrandedSlugAvailable(env, slug) {
 
 async function loginIssue(request, env) {
   const { email, turnstile } = await request.json().catch(() => ({}));
-  const normalized = canonicalizeEmail(email);
+  // IDENTITY stays normalizeEmail (trim+lowercase) so session.sub / owner_email
+  // keep matching existing sites registered under Gmail dot/+tag addresses;
+  // canonicalizeEmail is used ONLY for the rate-limit key below.
+  const normalized = normalizeEmail(email);
+  const canonical = canonicalizeEmail(email);
   if (!isValidEmail(normalized)) {
     return json({ ok: false, error: 'Enter a valid email address.' }, 400);
   }
@@ -270,7 +274,7 @@ async function loginIssue(request, env) {
     !(await kvRateLimit(
       env,
       'login',
-      normalized,
+      canonical,
       await getLimit(env, 'rl.login_email_max', RL.loginEmail),
       await getLimit(env, 'rl.login_email_window', RL.loginEmailWindow),
     ))
@@ -320,8 +324,10 @@ async function sendMagicEmail(env, email, link) {
 }
 
 async function loginCallback(request, env) {
+  // Browser navigation (magic link click) — an HTML 429, not raw JSON.
   if (!ipRateLimit(request, 'login-callback', await getLimit(env, 'rl.login_callback_ip_max', RL.loginCallbackIp), await getLimit(env, 'rl.login_callback_ip_window', RL.loginCallbackIpWindow))) {
-    return rateLimited('login-callback-ip');
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'login-callback-ip', t: Date.now() }));
+    return html(loginPage({ error: 'Too many logins from this network — try again in a few minutes.' }, { turnstileSitekey: env.TURNSTILE_SITEKEY }), 429);
   }
   const code = new URL(request.url).searchParams.get('code') || '';
   const key = `magic:${code}`;
@@ -388,8 +394,10 @@ function wizardLogout(request) {
 
 async function oauthStart(request, env, flow) {
   if (!env.GITHUB_CLIENT_ID) return text('GITHUB_CLIENT_ID is not configured on the worker.', 500);
+  // Browser navigation — an HTML 429, not raw JSON.
   if (!ipRateLimit(request, 'oauth', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
-    return rateLimited('oauth-ip');
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-ip', t: Date.now() }));
+    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
   }
   const nonce = crypto.randomUUID();
   const state = await signPayload(env.SESSION_SECRET, { flow, nonce });
@@ -425,8 +433,12 @@ async function exchangeCode(env, code) {
 }
 
 async function oauthCallback(request, env) {
-  if (!ipRateLimit(request, 'oauth-callback', await getLimit(env, 'rl.oauth_callback_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_callback_ip_window', RL.oauthIpWindow))) {
-    return rateLimited('oauth-callback-ip');
+  // Browser navigation (GitHub redirect) — an HTML 429, not raw JSON. Reads the
+  // same documented rl.oauth_ip_* tunables as oauthStart so tuning the pair
+  // affects the whole OAuth round-trip.
+  if (!ipRateLimit(request, 'oauth-callback', await getLimit(env, 'rl.oauth_ip_max', RL.oauthIp), await getLimit(env, 'rl.oauth_ip_window', RL.oauthIpWindow))) {
+    console.log(JSON.stringify({ ev: 'rate-limited', rule: 'oauth-callback-ip', t: Date.now() }));
+    return html(messagePage('Too many requests', 'Too many requests from this network — try again in a few minutes.'), 429);
   }
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
@@ -608,16 +620,29 @@ function clientIp(request) {
   return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
+// Isolate-scoped cache for settings reads (tunables change rarely; avoids a D1
+// round-trip per gate per request). 30-s TTL.
+const LIMIT_CACHE = new Map();
+const LIMIT_CACHE_TTL = 30 * 1000;
+
 /** D1 settings-table tunable; falls back to the code default if unset/errored. */
 async function getLimit(env, key, fallback) {
+  const now = Date.now();
+  const cached = LIMIT_CACHE.get(key);
+  if (cached && cached.expires > now) return cached.value;
+  let value = fallback;
   try {
     const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
-    if (!row || !String(row.value).trim()) return fallback;
-    const n = Number(row.value);
-    return Number.isFinite(n) && n >= 0 ? n : fallback;
+    if (row && String(row.value).trim()) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n >= 0) value = n;
+    }
   } catch {
-    return fallback;
+    // settings table missing/errored — keep the code default
   }
+  if (LIMIT_CACHE.size > 512) LIMIT_CACHE.clear();
+  LIMIT_CACHE.set(key, { value, expires: now + LIMIT_CACHE_TTL });
+  return value;
 }
 
 /**
@@ -651,8 +676,15 @@ function ipRateLimit(request, name, max, windowSeconds) {
   const entry = IP_LIMITS.get(key);
   if (!entry || entry.expires <= now) {
     if (IP_LIMITS.size > 50000) {
+      // Bound the map: sweep expired entries, then evict a ~25% sample of the
+      // oldest rather than clear() (a full clear would reset every active
+      // window on the isolate, including legit users', at the moment a wide-IP
+      // flood is being absorbed).
       for (const [k, v] of IP_LIMITS) if (v.expires <= now) IP_LIMITS.delete(k);
-      if (IP_LIMITS.size > 50000) IP_LIMITS.clear();
+      if (IP_LIMITS.size > 50000) {
+        const keys = [...IP_LIMITS.keys()].slice(0, Math.floor(IP_LIMITS.size / 4));
+        for (const k of keys) IP_LIMITS.delete(k);
+      }
     }
     IP_LIMITS.set(key, { count: 1, expires: now + windowMs });
     return true;
@@ -671,7 +703,12 @@ function ipRateLimit(request, name, max, windowSeconds) {
  */
 async function verifyTurnstile(env, token) {
   const { TURNSTILE_SITEKEY, TURNSTILE_SECRET } = env;
-  if (!TURNSTILE_SITEKEY && !TURNSTILE_SECRET) return { ok: true, unavailable: true };
+  if (!TURNSTILE_SITEKEY && !TURNSTILE_SECRET) {
+    // Human verification is off (local dev). Log it so a production deployment
+    // that forgot both vars is visible instead of silently running without it.
+    console.log(JSON.stringify({ ev: 'turnstile-unconfigured', t: Date.now() }));
+    return { ok: true, unavailable: true };
+  }
   if (!TURNSTILE_SITEKEY || !TURNSTILE_SECRET) {
     console.log(JSON.stringify({ ev: 'turnstile-misconfig', t: Date.now() }));
     return { ok: false, misconfig: true, reason: 'turnstile-misconfigured' };
@@ -771,22 +808,6 @@ async function provision(request, env) {
   const ok = (name, detail) => steps.push({ name, ok: true, detail });
   const fail = (name, detail) => steps.push({ name, ok: false, detail });
 
-  // Rate-limit gates run BEFORE anything is created so a rejected request never
-  // leaves partial resources. Turnstile first (fail-closed); then per-IP and
-  // per-session soft brakes; then the hard per-GitHub-login site cap.
-  const ts = await verifyTurnstile(env, turnstile);
-  if (!ts.ok) return turnstileResponse(ts);
-  if (!ipRateLimit(request, 'provision', await getLimit(env, 'rl.provision_ip_max', RL.provisionIp), await getLimit(env, 'rl.provision_ip_window', RL.provisionIpWindow))) {
-    return rateLimited('provision-ip', 'Too many sites from this network — try again in an hour.');
-  }
-  if (!(await kvRateLimit(env, 'provision', wizard.login, await getLimit(env, 'rl.provision_session_max', RL.provisionSession), await getLimit(env, 'rl.provision_session_window', RL.provisionSessionWindow)))) {
-    return rateLimited('provision-session', 'You\'ve created sites very recently — try again in an hour.');
-  }
-  const siteCap = await getLimit(env, 'rl.site_cap', RL.siteCap);
-  if ((await siteCountForLogin(env, wizard.login)) >= siteCap) {
-    return rateLimited('site-cap', `You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
-  }
-
   // Best-effort reverse-order cleanup of anything created mid-flow, so a failure
   // never leaves an orphaned repo, Pages project, DNS record, or D1 row behind.
   // External resources are torn down first and the D1 row is deleted LAST, so a
@@ -821,12 +842,31 @@ async function provision(request, env) {
   };
 
   try {
+    // Cheap input validation runs BEFORE the rate-limit gates so a user
+    // experimenting with names (reserved/short) never burns the creation budget.
     const slug = slugifySiteName(siteName);
     if (!slug) throw new Error('Invalid site name — use letters, numbers and dashes (e.g. "my-blog").');
     if (!cfToken) throw new Error('Cloudflare API token is required.');
     const branded = siteBranded === true;
     if (branded && !env.CF_ZONE_DNS_TOKEN) {
       throw new Error('Branded subdomains are not configured on this panel (CF_ZONE_DNS_TOKEN missing) — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
+    }
+
+    // Rate-limit gates run after validation but BEFORE anything is created, so
+    // a rejected request never leaves partial resources. Turnstile first
+    // (fail-closed); then per-IP + per-session soft brakes; then the hard
+    // per-GitHub-login site cap.
+    const ts = await verifyTurnstile(env, turnstile);
+    if (!ts.ok) return turnstileResponse(ts);
+    if (!ipRateLimit(request, 'provision', await getLimit(env, 'rl.provision_ip_max', RL.provisionIp), await getLimit(env, 'rl.provision_ip_window', RL.provisionIpWindow))) {
+      return rateLimited('provision-ip', 'Too many sites from this network — try again in an hour.');
+    }
+    if (!(await kvRateLimit(env, 'provision', wizard.login, await getLimit(env, 'rl.provision_session_max', RL.provisionSession), await getLimit(env, 'rl.provision_session_window', RL.provisionSessionWindow)))) {
+      return rateLimited('provision-session', 'You\'ve created sites very recently — try again in an hour.');
+    }
+    const siteCap = await getLimit(env, 'rl.site_cap', RL.siteCap);
+    if ((await siteCountForLogin(env, wizard.login)) >= siteCap) {
+      return rateLimited('site-cap', `You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
     }
     const ghT = wizard.t;
     const login = wizard.login;

@@ -118,11 +118,16 @@ Three layers protect the panel (`2026-08-04-kantan-panel-rate-limiting.md`):
 | `rl.provision_session_max` / `rl.provision_session_window` | `2` / `3600` | provisions per GitHub login / hour |
 | `rl.site_cap` | `5` | hard cap: sites per GitHub login |
 | `rl.lookup_ip_max` / `rl.lookup_ip_window` | `120` / `600` | decap lookup per IP (advisory) |
-| `rl.oauth_ip_max` / `rl.oauth_ip_window` | `30` / `600` | OAuth start/callback per IP |
+| `rl.oauth_ip_max` / `rl.oauth_ip_window` | `30` / `600` | OAuth start + callback per IP |
 | `rl.login_callback_ip_max` / `rl.login_callback_ip_window` | `30` / `600` | /login/callback per IP |
-| `rl.site_check_max` | `15` | site check per email / `rl.site_window` (600 s) |
+| `rl.site_window` | `600` | window (s) for the site check/update/baseline caps |
+| `rl.site_check_max` | `15` | site check per email / `rl.site_window` |
 | `rl.site_update_max` | `2` | site update per email / `rl.site_window` |
 | `rl.cf_accounts_ip_max` / `rl.cf_accounts_ip_window` | `20` / `600` | cf/accounts per IP |
+
+An empty value (or a missing key) falls back to the code default; a numeric
+value of `'0'` is a deliberate kill-switch that denies that limit for everyone
+(use with care).
 
 KV free tier allows 1,000 writes/day — counters are deliberately kept to
 low-cardinality keys; a KV write failure fails open and is logged
