@@ -338,16 +338,16 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
         <input type="text" id="site-name" placeholder="my-blog" autocomplete="off" />
         <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
           <input type="checkbox" id="site-public" style="margin-top:.3rem" />
-          <span style="display:flex; flex-direction:column; gap:.1rem">
+          <span style="display:block">
             Make this repository public
-            <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
+            <span class="muted" style="display:block; font-size:.78rem">(your site itself is always public)</span>
           </span>
         </label>
         <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
           <input type="checkbox" id="site-branded" checked style="margin-top:.3rem" />
-          <span style="display:flex; flex-direction:column; gap:.1rem">
+          <span style="display:block">
             Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
-            <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+            <span class="muted" style="display:block; font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
           </span>
         </label>
         <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
