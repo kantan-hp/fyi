@@ -24,7 +24,15 @@ function parseCookies(header) {
   for (const part of header.split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    const name = part.slice(0, i).trim();
+    let value = part.slice(i + 1).trim();
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // malformed percent-encoding (e.g. a bare %): keep the raw value rather
+      // than throwing — a hostile cookie must never 500 the panel.
+    }
+    out[name] = value;
   }
   return out;
 }
@@ -40,13 +48,23 @@ function browserLocaleToLocale(code) {
   return null;
 }
 
-// Resolve the request's language: cookie > Accept-Language > en.
+// Resolve the request's language: cookie > Accept-Language > en. Accept-Language
+// q-values are honored (an entry with q=0 is explicitly excluded).
 export function resolveLocale(request) {
   const cookies = parseCookies(request.headers.get('cookie') || '');
   if (isLocale(cookies[LANG_COOKIE])) return cookies[LANG_COOKIE];
   const header = request.headers.get('accept-language') || '';
-  for (const part of header.split(',')) {
-    const code = part.split(';')[0].trim();
+  const entries = header
+    .split(',')
+    .map((part) => {
+      const [code, ...params] = part.split(';');
+      const qParam = params.find((p) => p.trim().startsWith('q='));
+      const q = qParam ? parseFloat(qParam.split('=')[1]) : 1;
+      return { code: code.trim(), q: Number.isNaN(q) ? 1 : q };
+    })
+    .sort((a, b) => b.q - a.q);
+  for (const { code, q } of entries) {
+    if (q <= 0) continue;
     const locale = browserLocaleToLocale(code);
     if (locale) return locale;
   }
@@ -179,6 +197,7 @@ const ui = {
     confirmAnyway: 'Confirm & update anyway',
     majorConfirmBody:
       'This update bumps a major version ({deps}). It can change the look or break customizations.',
+    majorConfirmPrompt: 'Confirm to continue, or cancel.',
     reasonDirty:
       'Your site has core files that differ from the template — updates are blocked so your changes are never overwritten.',
     reasonCollision:
@@ -318,6 +337,7 @@ const ui = {
     filesBlocking: '更新を妨げるファイル:',
     confirmAnyway: 'それでも更新して続行',
     majorConfirmBody: 'この更新はメジャーバージョンアップです（{deps}）。外観が変わったりカスタマイズが壊れる可能性があります。',
+    majorConfirmPrompt: '続行するか、キャンセルするか選択してください。',
     reasonDirty:
       'サイトのコアファイルがテンプレートと異なります — 変更を上書きしないよう、更新はブロックされています。',
     reasonCollision: 'テンプレートが、サイトにすでに存在するファイルを追加します — 上書きしてしまうため更新できません。',
@@ -454,6 +474,7 @@ const ui = {
     filesBlocking: '阻擋更新的檔案：',
     confirmAnyway: '仍要更新並繼續',
     majorConfirmBody: '此更新會升級主要版本（{deps}）。可能改變外觀或破壞自訂項目。',
+    majorConfirmPrompt: '請選擇繼續或取消。',
     reasonDirty:
       '你的網站核心檔案與範本不同 — 為避免覆寫你的變更，更新已封鎖。',
     reasonCollision: '範本新增的檔案已存在於你的網站 — 更新會覆寫它們。',
@@ -590,6 +611,7 @@ const ui = {
     filesBlocking: '阻止更新的文件：',
     confirmAnyway: '仍要更新并继续',
     majorConfirmBody: '此更新会升级主要版本（{deps}）。可能改变外观或破坏自定义项。',
+    majorConfirmPrompt: '请选择继续或取消。',
     reasonDirty:
       '你的网站核心文件与模板不同 — 为避免覆盖你的更改，更新已阻止。',
     reasonCollision: '模板新增的文件已存在于你的网站 — 更新会覆盖它们。',

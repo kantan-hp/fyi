@@ -167,12 +167,14 @@ function redirect(location) {
 
 // Language switcher: set the kantan_lang cookie and return to the page.
 // `l` must be one of our locales; `next` must be a same-site path (open-redirect
-// guard). Cookie is SameSite=Lax + HttpOnly — the worker reads it per request.
+// guard: reject scheme-relative `//` AND backslash `\`, which browsers treat as
+// `/` in special URLs — `next=/\%5cevil.com` must not redirect off-site).
+// Cookie is SameSite=Lax + HttpOnly — the worker reads it per request.
 function setLang(request) {
   const url = new URL(request.url);
   const locale = url.searchParams.get('l');
   const next = url.searchParams.get('next') || '/';
-  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+  const safeNext = /^\/(?![\/\\])/.test(next) ? next : '/';
   const headers = new Headers({ location: safeNext });
   if (isLocale(locale)) {
     headers.append(

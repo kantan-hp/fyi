@@ -9,6 +9,19 @@ function req({ cookie = '', acceptLanguage = '' } = {}) {
   return new Request('https://kantan-hp.fyi/app', { headers });
 }
 
+test('resolveLocale: honors Accept-Language q-values (q=0 excluded)', () => {
+  // en explicitly excluded, ja acceptable → ja.
+  assert.equal(resolveLocale(req({ acceptLanguage: 'en;q=0, ja' })), 'ja');
+  // quality order respected.
+  assert.equal(resolveLocale(req({ acceptLanguage: 'zh-TW;q=0.5, ja;q=0.9' })), 'ja');
+});
+
+test('parseCookies: a malformed cookie value does not throw', () => {
+  // A hostile/accidental cookie with invalid percent-encoding must not 500.
+  const r = req({ cookie: `${LANG_COOKIE}=%E0%A4%A; other=1`, acceptLanguage: 'ja' });
+  assert.equal(resolveLocale(r), 'ja');
+});
+
 test('resolveLocale: cookie wins over Accept-Language', () => {
   const r = req({ cookie: `${LANG_COOKIE}=zh-Hant`, acceptLanguage: 'ja,en;q=0.8' });
   assert.equal(resolveLocale(r), 'zh-Hant');

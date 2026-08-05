@@ -336,7 +336,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
 
       <section class="card" id="step3">
         <h2><span class="num">3</span> ${t(locale, 'step3Title')}</h2>
-        <p>${t(locale, 'step3Body')}</p>
+        <p>${t(locale, 'step3Body').replace('<name>', '&lt;name&gt;')}</p>
         <input type="text" id="site-name" placeholder="${t(locale, 'siteNamePlaceholder')}" autocomplete="off" />
         <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
           <input type="checkbox" id="site-public" style="margin-top:.3rem" />
@@ -776,7 +776,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           renderCheck(origin, { upgradeable: 'no' });
         } else {
           let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';
-          if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err"></p>';
+          if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err">' + window.I18N.majorConfirmPrompt + '</p>';
           openModal(window.I18N.updateFailed, body, (data.blocked === 'major'
             ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">' + window.I18N.confirmAnyway + '</button>'
             : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
