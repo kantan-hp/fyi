@@ -52,3 +52,33 @@ test('appPage inline scripts parse (with sites, with and without sitekey)', () =
 test('messagePage renders and any inline scripts parse', () => {
   assert.ok(messagePage('Title', 'Body').length > 0);
 });
+
+test('pages render localized strings + the language switcher footer', () => {
+  const ja = welcomePage({}, { locale: 'ja', pathname: '/' });
+  assert.ok(ja.includes('<html lang="ja"'));
+  assert.ok(ja.includes('本当に数分で公開できる、無料のブログ。'));
+  // Footer language switcher: all four native names, current marked.
+  assert.ok(ja.includes('class="lang-switch"'));
+  assert.ok(ja.includes('>日本語</a>') && ja.includes('aria-current="true"'));
+  assert.ok(ja.includes('>English</a>') && ja.includes('>繁體中文</a>') && ja.includes('>简体中文</a>'));
+
+  const zh = loginPage({}, { locale: 'zh-Hans', pathname: '/login' });
+  assert.ok(zh.includes('<html lang="zh-Hans"'));
+  assert.ok(zh.includes('登录'));
+
+  const app = appPage(
+    { email: 'a@b.co', sites: [], hasSites: false },
+    { locale: 'zh-Hant', pathname: '/app' },
+  );
+  assert.ok(app.includes('<html lang="zh-Hant"'));
+  assert.ok(app.includes('為網站命名'));
+  // Step-3 language dropdown defaults to the panel's current language.
+  assert.ok(app.includes('data-panel-lang="zh-Hant"'));
+  assert.ok(app.includes('id="site-lang"'));
+});
+
+test('unknown/missing locale falls back to English', () => {
+  const en = welcomePage({});
+  assert.ok(en.includes('<html lang="en"'));
+  assert.ok(en.includes('A free blog you can actually publish to in minutes.'));
+});
