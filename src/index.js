@@ -176,7 +176,7 @@ function setLang(request) {
   const url = new URL(request.url);
   const locale = url.searchParams.get('l');
   const next = url.searchParams.get('next') || '/';
-  const safeNext = /^\/(?!\/|\\)[^\r\n\0]*$/.test(next) ? next : '/';
+  const safeNext = /^\/(?!\/|\\)[^\t\r\n\0]*$/.test(next) ? next : '/';
   const headers = new Headers({ location: safeNext });
   if (isLocale(locale)) {
     headers.append(
@@ -1087,7 +1087,7 @@ async function provision(request, env) {
       // keeps its default locale (en) but the SITE still builds with site.lang.
       // Surface it rather than failing provisioning (the repo: guard above is
       // the only hard dependency on the template layout).
-      const editorLocaleOk = /^\s*default_locale:/.test(updated);
+      const editorLocaleOk = /^\s*default_locale:/m.test(updated);
       await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
         method: 'PUT',
         body: {
