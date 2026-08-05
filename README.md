@@ -90,6 +90,45 @@ For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run de
 Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
 emailing it, so the whole flow is testable locally with zero setup.
 
+## Rate limiting (layered)
+
+Three layers protect the panel (`2026-08-04-kantan-panel-rate-limiting.md`):
+
+1. **Edge WAF rule (dashboard, free tier — create once)**: Security → WAF → Rate
+   limiting rules, one rule:
+   - Expression: `starts_with(http.request.uri.path, "/api/") or starts_with(http.request.uri.path, "/oauth/")`
+   - Action: **Block**, ~100 requests per 10 seconds per IP (free tier is one
+     rule, fixed 10-s window, path-only — this is pure burst protection).
+2. **Turnstile** on the login form + provisioning step: set `TURNSTILE_SITEKEY`
+   (var) and `TURNSTILE_SECRET` (secret) **together**. If only one is set the
+   worker logs `turnstile-misconfig` and rejects with a clear error rather than
+   silently skipping verification.
+3. **App-level per-identity limits** (worker): KV counters for per-email /
+   per-session keys (Gmail dot/+tag canonicalized), a bounded in-memory map for
+   advisory per-IP windows, and a hard 5-sites-per-GitHub-login cap.
+
+**Tuning without a deploy** — insert a row in the D1 `settings` table (migration
+0004); an empty value or missing key falls back to the code default:
+
+| key | default | meaning |
+| --- | --- | --- |
+| `rl.login_email_max` / `rl.login_email_window` | `3` / `900` | login links per canonical email / window (s) |
+| `rl.login_ip_max` / `rl.login_ip_window` | `30` / `900` | login per IP (advisory, in-memory) |
+| `rl.provision_ip_max` / `rl.provision_ip_window` | `5` / `3600` | provisions per IP (advisory) |
+| `rl.provision_session_max` / `rl.provision_session_window` | `2` / `3600` | provisions per GitHub login / hour |
+| `rl.site_cap` | `5` | hard cap: sites per GitHub login |
+| `rl.lookup_ip_max` / `rl.lookup_ip_window` | `120` / `600` | decap lookup per IP (advisory) |
+| `rl.oauth_ip_max` / `rl.oauth_ip_window` | `30` / `600` | OAuth start/callback per IP |
+| `rl.login_callback_ip_max` / `rl.login_callback_ip_window` | `30` / `600` | /login/callback per IP |
+| `rl.site_check_max` | `15` | site check per email / `rl.site_window` (600 s) |
+| `rl.site_update_max` | `2` | site update per email / `rl.site_window` |
+| `rl.cf_accounts_ip_max` / `rl.cf_accounts_ip_window` | `20` / `600` | cf/accounts per IP |
+
+KV free tier allows 1,000 writes/day — counters are deliberately kept to
+low-cardinality keys; a KV write failure fails open and is logged
+(`kv-rate-limit-fail-open`), and rate-limit hits log `rate-limited` lines
+(non-PII) for `wrangler tail`.
+
 ## What users need
 
 - Just an email address to sign in.

@@ -115,7 +115,8 @@ test('normalizeEmail trims and lowercases', () => {
 
 test('canonicalizeEmail collapses Gmail dot/+tag aliases', () => {
   assert.equal(canonicalizeEmail('V.IC.T+tag@gmail.com'), 'vict@gmail.com');
-  assert.equal(canonicalizeEmail('foo.bar@googlemail.com'), 'foobar@googlemail.com');
+  assert.equal(canonicalizeEmail('foo.bar@googlemail.com'), 'foobar@gmail.com');
+  assert.equal(canonicalizeEmail('foo+tag@googlemail.com'), 'foo@gmail.com');
 });
 
 test('canonicalizeEmail leaves non-Gmail and plain addresses unchanged', () => {

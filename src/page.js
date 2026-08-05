@@ -170,15 +170,27 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
     <script>
       const form = document.getElementById('login');
       const status = document.getElementById('status');
-      window.onTurnstileSuccess = () => {};
+      const loginBtn = form.querySelector('button');
+      const tsWidget = document.querySelector('.cf-turnstile');
+      // With a widget present, hold the submit until Turnstile reports success
+      // (managed widget) so a half-solved captcha never hits the server's
+      // fail-closed path with a misleading "Too many requests" message.
+      let turnstileOk = !tsWidget;
+      const updateLoginBtn = () => { if (loginBtn) loginBtn.disabled = !turnstileOk; };
+      window.onTurnstileSuccess = () => { turnstileOk = true; updateLoginBtn(); };
       window.onTurnstileError = () => {
-        const btn = form.querySelector('button');
-        if (btn) btn.disabled = false;
+        turnstileOk = false;
+        updateLoginBtn();
         status.innerHTML = '<span class="err">Verification failed — please reload and try again.</span>';
       };
+      updateLoginBtn();
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const btn = form.querySelector('button');
+        const btn = loginBtn;
+        if (tsWidget && !turnstileOk) {
+          status.innerHTML = '<span class="err">Please complete the verification box first.</span>';
+          return;
+        }
         btn.disabled = true;
         status.innerHTML = '<span class="muted">Sending…</span>';
         const r = await fetch('/api/login', {
@@ -192,7 +204,16 @@ export function loginPage({ error } = {}, { turnstileSitekey } = {}) {
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
           status.innerHTML = '<span class="err">' + (data.error || 'Could not send the link.') + '</span>';
-          btn.disabled = false;
+          // Turnstile tokens are single-use; after any rejection reset the
+          // widget so the user can re-solve instead of being stuck on a
+          // consumed token.
+          if (tsWidget && window.turnstile) {
+            window.turnstile.reset(tsWidget);
+            turnstileOk = false;
+            updateLoginBtn();
+          } else {
+            btn.disabled = false;
+          }
           return;
         }
         status.innerHTML = '<span class="ok">✓ Check your inbox — the link expires in 15 minutes.</span>';
@@ -337,9 +358,15 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
     <script>
       const $ = (id) => document.getElementById(id);
       let cfToken = null, cfAccountId = null, ghConnected = false;
+      const tsWidget = document.querySelector('.cf-turnstile');
+      // With a widget present, hold Create until Turnstile reports success so a
+      // half-solved captcha never hits the server's fail-closed path.
+      let turnstileOk = !tsWidget;
 
-      window.onTurnstileSuccess = () => {};
+      window.onTurnstileSuccess = () => { turnstileOk = true; refreshCreateButton(); };
       window.onTurnstileError = () => {
+        turnstileOk = false;
+        refreshCreateButton();
         const result = $('result');
         if (result) {
           result.innerHTML = '<div class="status err">Verification failed — please reload and try again.</div>';
@@ -354,8 +381,19 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
       };
 
       function refreshCreateButton() {
-        $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim());
+        $('create').disabled = !(ghConnected && cfToken && cfAccountId && $('site-name').value.trim() && turnstileOk);
       }
+
+      // Turnstile tokens are single-use; after a failed submit the widget must
+      // be reset so the user can re-solve instead of being stuck on a consumed
+      // token. Returns the button to the gated state.
+      const resetTurnstile = () => {
+        if (tsWidget && window.turnstile) {
+          window.turnstile.reset(tsWidget);
+          turnstileOk = false;
+          refreshCreateButton();
+        }
+      };
 
       async function init() {
         const r = await fetch('/api/wizard/me');
@@ -494,6 +532,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
             '. Your site may be partially created; check GitHub and retry.';
           $('result').appendChild(div);
           $('create').disabled = false;
+          resetTurnstile();
           return;
         }
         stopBar();
@@ -518,6 +557,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey } = {}) {
           div.textContent = data.error || 'Provisioning failed.';
           $('result').appendChild(div);
           $('create').disabled = false;
+          resetTurnstile();
         }
       };
 

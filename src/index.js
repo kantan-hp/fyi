@@ -78,7 +78,9 @@ const RL = {
   oauthIpWindow: 10 * 60,
   loginCallbackIp: 30,
   loginCallbackIpWindow: 10 * 60,
-  siteCheck: 5,
+  // site check budget is ~3x the site cap so a power user checking all their
+  // sites (plus the update-modal re-check) doesn't self-inflict a 429.
+  siteCheck: 15,
   siteUpdate: 2,
   siteWindow: 10 * 60,
   cfAccountsIp: 20,
@@ -248,7 +250,7 @@ async function loginIssue(request, env) {
   // that never renders the widget gets no free pass); only a siteverify outage
   // fails open.
   const ts = await verifyTurnstile(env, turnstile);
-  if (!ts.ok) return rateLimited('login-turnstile');
+  if (!ts.ok) return turnstileResponse(ts);
 
   // Per-IP advisory brake (in-memory, longer window than the edge's 10 s).
   if (
@@ -259,7 +261,7 @@ async function loginIssue(request, env) {
       await getLimit(env, 'rl.login_ip_window', RL.loginIpWindow),
     )
   ) {
-    return rateLimited('login-ip');
+    return rateLimited('login-ip', 'Too many requests from this network — try again in a few minutes.');
   }
 
   // Per-email counter on the CANONICALIZED address so Gmail dots/+tags can't
@@ -273,7 +275,7 @@ async function loginIssue(request, env) {
       await getLimit(env, 'rl.login_email_window', RL.loginEmailWindow),
     ))
   ) {
-    return json({ ok: false, error: 'Too many login links. Try again in a few minutes.' }, 429);
+    return rateLimited('login-email', 'Too many login links. Try again in a few minutes.');
   }
 
   const code = randomHex(16);
@@ -610,7 +612,7 @@ function clientIp(request) {
 async function getLimit(env, key, fallback) {
   try {
     const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
-    if (!row) return fallback;
+    if (!row || !String(row.value).trim()) return fallback;
     const n = Number(row.value);
     return Number.isFinite(n) && n >= 0 ? n : fallback;
   } catch {
@@ -621,7 +623,8 @@ async function getLimit(env, key, fallback) {
 /**
  * KV rate-limit counter for low-cardinality per-email / per-session identities.
  * read-modify-write can race (fine for soft abuse control, not hard caps);
- * a KV failure fails OPEN so an outage never locks out the panel.
+ * a KV failure fails OPEN so an outage never locks out the panel — but it is
+ * logged (non-PII) so silent budget exhaustion is visible.
  */
 async function kvRateLimit(env, name, identity, max, windowSeconds) {
   const key = `rl:${name}:${identity}`;
@@ -632,6 +635,7 @@ async function kvRateLimit(env, name, identity, max, windowSeconds) {
     await env.KV.put(key, JSON.stringify(cur), { expirationTtl: windowSeconds });
     return true;
   } catch {
+    console.log(JSON.stringify({ ev: 'kv-rate-limit-fail-open', rule: name, t: Date.now() }));
     return true;
   }
 }
@@ -660,18 +664,29 @@ function ipRateLimit(request, name, max, windowSeconds) {
 
 /**
  * Verify a Turnstile token server-side. Fail CLOSED on a missing/invalid token;
- * fail OPEN (with a flag) only when the siteverify endpoint is unreachable —
- * a Cloudflare-wide Turnstile incident must not lock the whole panel.
+ * fail OPEN only when the siteverify endpoint is unreachable OR returns a 5xx
+ * (a Cloudflare-wide Turnstile incident must not lock the whole panel) — and log
+ * those events. A SITEKEY/SECRET pairing mismatch is a deployment misconfig and
+ * is surfaced as such instead of silently skipping verification or locking out.
  */
 async function verifyTurnstile(env, token) {
-  if (!env.TURNSTILE_SECRET) return { ok: true, unavailable: true };
+  const { TURNSTILE_SITEKEY, TURNSTILE_SECRET } = env;
+  if (!TURNSTILE_SITEKEY && !TURNSTILE_SECRET) return { ok: true, unavailable: true };
+  if (!TURNSTILE_SITEKEY || !TURNSTILE_SECRET) {
+    console.log(JSON.stringify({ ev: 'turnstile-misconfig', t: Date.now() }));
+    return { ok: false, misconfig: true, reason: 'turnstile-misconfigured' };
+  }
   if (!token) return { ok: false, reason: 'verification-token-missing' };
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token }),
+      body: JSON.stringify({ secret: TURNSTILE_SECRET, response: token }),
     });
+    if (res.status >= 500) {
+      console.log(JSON.stringify({ ev: 'turnstile-fail-open', status: res.status, t: Date.now() }));
+      return { ok: true, unavailable: true };
+    }
     const data = await res.json().catch(() => ({}));
     return data.success === true ? { ok: true } : { ok: false, reason: 'verification-failed' };
   } catch {
@@ -680,10 +695,18 @@ async function verifyTurnstile(env, token) {
   }
 }
 
+/** Response for a failed Turnstile check — misconfig vs user-actionable. */
+function turnstileResponse(ts) {
+  if (ts.misconfig) {
+    return json({ ok: false, error: 'The panel is not configured for verification (Turnstile sitekey/secret mismatch) — contact the operator.' }, 500);
+  }
+  return json({ ok: false, error: 'Please complete the verification box and try again.' }, 400);
+}
+
 /** 429 response + non-PII observability line for a rate-limit hit. */
-function rateLimited(rule) {
+function rateLimited(rule, message) {
   console.log(JSON.stringify({ ev: 'rate-limited', rule, t: Date.now() }));
-  return json({ ok: false, error: 'Too many requests — try again shortly.' }, 429);
+  return json({ ok: false, error: message || 'Too many requests — try again shortly.' }, 429);
 }
 
 /** Count of sites a GitHub login already owns (the hard provisioning cap). */
@@ -752,16 +775,16 @@ async function provision(request, env) {
   // leaves partial resources. Turnstile first (fail-closed); then per-IP and
   // per-session soft brakes; then the hard per-GitHub-login site cap.
   const ts = await verifyTurnstile(env, turnstile);
-  if (!ts.ok) return rateLimited('provision-turnstile');
+  if (!ts.ok) return turnstileResponse(ts);
   if (!ipRateLimit(request, 'provision', await getLimit(env, 'rl.provision_ip_max', RL.provisionIp), await getLimit(env, 'rl.provision_ip_window', RL.provisionIpWindow))) {
-    return rateLimited('provision-ip');
+    return rateLimited('provision-ip', 'Too many sites from this network — try again in an hour.');
   }
   if (!(await kvRateLimit(env, 'provision', wizard.login, await getLimit(env, 'rl.provision_session_max', RL.provisionSession), await getLimit(env, 'rl.provision_session_window', RL.provisionSessionWindow)))) {
-    return rateLimited('provision-session');
+    return rateLimited('provision-session', 'You\'ve created sites very recently — try again in an hour.');
   }
   const siteCap = await getLimit(env, 'rl.site_cap', RL.siteCap);
   if ((await siteCountForLogin(env, wizard.login)) >= siteCap) {
-    return json({ ok: false, error: `You already have ${siteCap} sites on kantan — that's the current per-account limit.` }, 429);
+    return rateLimited('site-cap', `You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
   }
 
   // Best-effort reverse-order cleanup of anything created mid-flow, so a failure
@@ -1053,8 +1076,11 @@ async function provision(request, env) {
       if ((insert.meta && insert.meta.changes) !== 1) {
         // The cap was hit mid-flight (concurrent provision). Nothing to keep:
         // the repo/project/DNS were created for a site the registry refused.
-        await rollback();
-        throw new Error(`You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
+        // The enclosing catch runs rollback() exactly once.
+        throw Object.assign(
+          new Error(`You already have ${siteCap} sites on kantan — that's the current per-account limit.`),
+          { status: 429 },
+        );
       }
       created.origin = origin;
       ok('site-registered', origin);
@@ -1088,7 +1114,7 @@ async function provision(request, env) {
     }
   } catch (err) {
     fail('error', String((err && err.message) || err));
-    return json({ ok: false, error: String((err && err.message) || err), steps }, 400);
+    return json({ ok: false, error: String((err && err.message) || err), steps }, err && err.status ? err.status : 400);
   }
 }
 
@@ -1396,6 +1422,10 @@ async function siteBaseline(request, env) {
   if (!session) return json({ error: 'not logged in' }, 401);
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub to set a baseline.', connectUrl: '/auth/github' }, 401);
+  // Same GitHub-budget family as check/update (~7 calls) — cap it the same way.
+  if (!(await kvRateLimit(env, 'site-baseline', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_check_max', RL.siteCheck), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-baseline', 'Too many baseline requests — try again in a few minutes.');
+  }
   const { origin } = await request.json().catch(() => ({}));
   const site = await getSiteByOrigin(env, origin);
   if (!site) return json({ error: 'unknown site' }, 404);

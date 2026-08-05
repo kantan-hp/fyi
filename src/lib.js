@@ -166,9 +166,10 @@ export function canonicalizeEmail(input) {
   const email = normalizeEmail(input);
   const at = email.lastIndexOf('@');
   if (at <= 0) return email;
-  const local = email.slice(0, at);
-  const domain = email.slice(at + 1);
-  if (domain !== 'gmail.com' && domain !== 'googlemail.com') return email;
+  let local = email.slice(0, at);
+  let domain = email.slice(at + 1);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain !== 'gmail.com') return `${local}@${domain}`;
   const plus = local.indexOf('+');
   const base = plus === -1 ? local : local.slice(0, plus);
   return `${base.replace(/\./g, '')}@${domain}`;
