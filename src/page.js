@@ -290,6 +290,11 @@ export function appPage({ email, sites, hasSites }) {
           <input type="checkbox" id="site-public" /> Make this repository public
           <span class="muted" style="font-size:.78rem">(your site itself is always public)</span>
         </label>
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+          <input type="checkbox" id="site-branded" checked /> Assign me <code>&lt;name&gt;.kantan-hp.fyi</code> too
+          <span class="muted" style="font-size:.78rem">(a branded address on kantan-hp.fyi; uncheck for pages.dev only)</span>
+        </label>
+        <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
         <button class="btn" id="create" disabled>Create my website</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
         <ul class="steps" id="progress"></ul>
@@ -381,7 +386,21 @@ export function appPage({ email, sites, hasSites }) {
         refreshCreateButton();
       };
 
-      $('site-name').oninput = refreshCreateButton;
+      // Short names can't carry a branded address. Show a live hint while
+      // typing, but only act on the FINAL submitted name (in the create handler
+      // below) so a name that grows to >=4 chars keeps the default-checked box.
+      const updateBrandedHint = () => {
+        const name = $('site-name').value.trim();
+        const hint = $('branded-fallback-hint');
+        if ($('site-branded').checked && name.length > 0 && name.length < 4) {
+          hint.textContent = 'Too short for a branded address — will use pages.dev only.';
+          hint.classList.remove('hidden');
+        } else {
+          hint.classList.add('hidden');
+        }
+      };
+      $('site-name').oninput = () => { refreshCreateButton(); updateBrandedHint(); };
+      $('site-branded').onchange = () => { updateBrandedHint(); };
 
       // Progress bar: simulated advance while the single provisioning POST runs
       // (there is no per-step streaming yet), then snap to 100% (ok) or 85% (err).
@@ -415,12 +434,20 @@ export function appPage({ email, sites, hasSites }) {
         };
         let data;
         try {
+          // Fall back to pages.dev-only for names too short to carry a branded
+          // address, evaluated on the FINAL name so a box the user left checked
+          // doesn't hard-fail (and never silently unchecks a name that grew).
+          if ($('site-branded').checked && $('site-name').value.trim().length < 4) {
+            $('site-branded').checked = false;
+            updateBrandedHint();
+          }
           const r = await fetch('/api/provision', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               siteName: $('site-name').value,
               cfToken, cfAccountId,
               public: $('site-public').checked,
+              branded: $('site-branded').checked,
             }),
           });
           data = await r.json();
@@ -441,10 +468,13 @@ export function appPage({ email, sites, hasSites }) {
         (data.steps || []).forEach(addStep);
         if (data.ok) {
           setBar('100%', 'ok');
+          const meanwhile = (data.site.pagesDevUrl && data.site.pagesDevUrl !== data.site.url)
+            ? '<br>Meanwhile it\'s live at: <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
+            : '';
           $('result').innerHTML =
             '<div class="result"><strong>Your site is being built.</strong><br>' +
             'Repo: <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
-            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a><br>' +
+            'Site: <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a>' + meanwhile + '<br>' +
             'Editor: <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
             '<span class="muted">' + data.site.note + '</span></div>';
           setTimeout(() => { location.href = '/app'; }, 2500);

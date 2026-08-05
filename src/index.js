@@ -38,6 +38,10 @@ import {
   reinjectConfigBackend,
   detectMajorBumps,
   upgradeState,
+  canonicalOrigin,
+  isBrandSlug,
+  isReservedSlug,
+  slugLengthOk,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 
@@ -51,6 +55,9 @@ const WIZARD_MAX_AGE_MS = 15 * 60 * 1000;
 const MAGIC_TTL_SECONDS = 15 * 60;
 const MAGIC_MAX_PER_WINDOW = 3;
 const MAGIC_WINDOW_SECONDS = 15 * 60;
+// The panel's own zone (also in wrangler.toml routes). Not secret; the worker
+// needs it at runtime to create per-site CNAME records with the operator token.
+const CF_ZONE_ID = 'ac38c505c9f1a177a53f023d30f79283';
 
 export default {
   async fetch(request, env) {
@@ -171,6 +178,33 @@ async function getSitesByEmail(env, email) {
 
 async function getSiteByOrigin(env, origin) {
   return env.DB.prepare('SELECT * FROM sites WHERE origin = ?').bind(origin).first();
+}
+
+/** Legacy pages.dev origin fallback for sites registered under a branded origin. */
+async function getSiteByDeployUrl(env, deployUrl) {
+  return env.DB.prepare('SELECT * FROM sites WHERE deploy_url = ?').bind(deployUrl).first();
+}
+
+/**
+ * The branded-subdomain naming guard: length floor, the pure kantan/reserved
+ * denylist, the D1 reserved_slugs table, and that no site already owns the
+ * branded origin. Only run when the wizard asks for a branded address.
+ */
+async function assertBrandedSlugAvailable(env, slug) {
+  if (!slugLengthOk(slug)) {
+    throw new Error('Site name must be 4–32 characters to get a branded address — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
+  }
+  if (isReservedSlug(slug)) {
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
+  }
+  const reserved = await env.DB.prepare('SELECT 1 FROM reserved_slugs WHERE slug = ?').bind(slug).first();
+  if (reserved) {
+    throw new Error(`"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
+  }
+  const taken = await getSiteByOrigin(env, canonicalOrigin(slug));
+  if (taken) {
+    throw new Error(`"${canonicalOrigin(slug)}" is already taken — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +444,10 @@ function renderDecapHandshake(content) {
       const origin = message.origin;
       try {
         const u = new URL(origin);
-        if (u.protocol !== 'https:' || !u.hostname.endsWith('.pages.dev')) {
+        const allowed =
+          u.protocol === 'https:' &&
+          (u.hostname.endsWith('.pages.dev') || u.hostname.endsWith('.kantan-hp.fyi'));
+        if (!allowed) {
           throw new Error('origin is not a provisioned site');
         }
         const look = await fetch('/api/decap/lookup?origin=' + encodeURIComponent(origin));
@@ -510,7 +547,10 @@ async function cfAccounts(request) {
 async function decapLookup(request, env) {
   const origin = new URL(request.url).searchParams.get('origin') || '';
   if (!isAllowedSiteOrigin(origin)) return json({ error: 'origin not allowed' }, 403);
-  const record = await getSiteByOrigin(env, origin);
+  // A branded site's canonical origin is the lookup key; its legacy pages.dev
+  // address (deploy_url) is accepted too so editor auth at the old URL keeps
+  // working after the migration.
+  const record = (await getSiteByOrigin(env, origin)) || (await getSiteByDeployUrl(env, origin));
   if (!record) return json({ error: 'unknown site' }, 404);
   return json({ repo: record.repo });
 }
@@ -524,19 +564,79 @@ async function provision(request, env) {
   const wizard = await getWizard(request, env);
   if (!wizard) return json({ error: 'Connect GitHub first (step 1).' }, 401);
 
-  const { siteName, cfToken, cfAccountId, public: sitePublic = false } = await request.json().catch(() => ({}));
+  const {
+    siteName,
+    cfToken,
+    cfAccountId,
+    public: sitePublic = false,
+    branded: siteBranded = false,
+  } = await request.json().catch(() => ({}));
   const steps = [];
   const ok = (name, detail) => steps.push({ name, ok: true, detail });
   const fail = (name, detail) => steps.push({ name, ok: false, detail });
+
+  // Best-effort reverse-order cleanup of anything created mid-flow, so a failure
+  // never leaves an orphaned repo, Pages project, DNS record, or D1 row behind.
+  // External resources are torn down first and the D1 row is deleted LAST, so a
+  // partial cleanup leaves a registry record an operator can see and finish.
+  const created = {};
+  const rollback = async () => {
+    const job = async (fn) => {
+      try {
+        await fn();
+      } catch {
+        // best-effort — a cleanup failure is logged by the caller's error path
+      }
+    };
+    if (created.dns) {
+      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.dns}`, { method: 'DELETE' }));
+    }
+    if (created.ownershipTxt) {
+      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.ownershipTxt}`, { method: 'DELETE' }));
+    }
+    if (created.domainAttach) {
+      await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
+    }
+    if (created.pagesProject) {
+      await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
+    }
+    if (created.repo) {
+      await job(() => gh(ghT, `/repos/${login}/${slug}`, { method: 'DELETE' }));
+    }
+    if (created.origin) {
+      await job(() => env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(created.origin).run());
+    }
+  };
 
   try {
     const slug = slugifySiteName(siteName);
     if (!slug) throw new Error('Invalid site name — use letters, numbers and dashes (e.g. "my-blog").');
     if (!cfToken) throw new Error('Cloudflare API token is required.');
+    const branded = siteBranded === true;
+    if (branded && !env.CF_ZONE_DNS_TOKEN) {
+      throw new Error('Branded subdomains are not configured on this panel (CF_ZONE_DNS_TOKEN missing) — or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.');
+    }
     const ghT = wizard.t;
     const login = wizard.login;
     const email = session.sub;
     const panelOrigin = panelBase(env, request);
+    const pagesDevUrl = `https://${slug}.pages.dev`;
+
+    // 0b. Naming guard. The kantan-brand guard runs on every path (a brand squat
+    //     is a squat whether or not the branded box is checked). The 4–32 length
+    //     floor, full denylist, D1 reserved_slugs, and branded-origin checks are
+    //     branded-namespace policy and only apply when branded.
+    if (isBrandSlug(slug)) {
+      throw new Error(
+        branded
+          ? `"${slug}" is reserved — pick another name, or uncheck "Assign me <name>.kantan-hp.fyi" to use pages.dev only.`
+          : `"${slug}" is reserved — pick another name.`,
+      );
+    }
+    if (branded) {
+      await assertBrandedSlugAvailable(env, slug);
+      ok('name-guard', `${slug}.kantan-hp.fyi available`);
+    }
 
     // 1. Cloudflare account (auto-discovered from the token)
     const accounts = await cf(cfToken, '/accounts?per_page=50');
@@ -570,137 +670,221 @@ async function provision(request, env) {
     if (projCheck.status === 200) {
       throw new Error(`"${slug}" is taken as a Cloudflare Pages project name (they are globally unique) — pick another.`);
     }
-    ok('pages-name-available', `${slug}.pages.dev`);
+    ok('pages-name-available', pagesDevUrl);
 
-    // 3. Generate the repo from the template
-    const [tplOwner, tplName] = (env.TEMPLATE_REPO || 'kantan-hp/template').split('/');
-    // Stamp the exact template revision the site's core is provisioned from.
-    const tplRef = await gh(ghT, `/repos/${tplOwner}/${tplName}/git/ref/heads/main`);
-    const templateVersion = tplRef.ok ? (await tplRef.json()).object.sha : null;
-    if (!templateVersion) throw new Error('Could not read the template version — retry in a moment.');
-    await ghJson(ghT, `/repos/${tplOwner}/${tplName}/generate`, {
-      method: 'POST',
-      body: {
-        owner: login,
-        name: slug,
-        description: 'A kantan-hp site, provisioned by the kantan panel',
-        include_all_branches: false,
-        private: !sitePublic, // private by default; opt-in to public
-      },
-    });
-    ok('repo-generated', `https://github.com/${login}/${slug}`);
-
-    // 4. Wait for the template contents to materialize
-    let cfg = null;
-    for (let i = 0; i < 10 && !cfg; i++) {
-      const res = await gh(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`);
-      if (res.status === 200) cfg = await res.json();
-      else await sleep(2000);
-    }
-    if (!cfg) throw new Error('The generated repository is still empty — GitHub is slow; retry in a minute.');
-    ok('repo-ready');
-
-    // 5. Repo secrets for the deploy workflow (GitHub sealed-box encryption)
-    const pub = await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/public-key`);
-    const keyBytes = Uint8Array.from(atob(pub.key), (c) => c.charCodeAt(0));
-    const putSecret = async (name, value) => {
-      const sealed = sodium.seal(new TextEncoder().encode(value), keyBytes);
-      let bin = '';
-      for (const b of sealed) bin += String.fromCharCode(b);
-      await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/${name}`, {
-        method: 'PUT',
-        body: { encrypted_value: btoa(bin), key_id: pub.key_id },
-      });
-    };
-    await putSecret('CF_API_TOKEN', cfToken);
-    await putSecret('CF_ACCOUNT_ID', accountId);
-    await putSecret('CF_PAGES_PROJECT', slug);
-    ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID, CF_PAGES_PROJECT');
-
-    // 6. Direct-upload Pages project (no Git connection needed)
+    // 3. Create the Pages project FIRST — the only globally-unique,
+    //    hard-to-undo resource — so a cross-account name collision fails here,
+    //    before anything else exists ("nothing half-created").
     await cf(cfToken, `/accounts/${accountId}/pages/projects`, {
       method: 'POST',
       body: { name: slug, production_branch: 'main' },
     });
-    ok('pages-project-created', `https://${slug}.pages.dev`);
+    created.pagesProject = true;
+    ok('pages-project-created', pagesDevUrl);
 
-    // 7. Point the editor at this repo + the panel's shared auth proxy.
-    //    This commit is also the first push, which triggers the deploy.
-    const current = b64decode(cfg.content);
-    let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
-    if (updated === current) throw new Error('Could not find the repo: line in config.yml.');
-    if (!/^\s*base_url:/m.test(updated)) {
-      updated = updated.replace(
-        /^(\s*)branch:.*$/m,
-        `$1branch: main\n$1base_url: ${panelOrigin}\n$1auth_endpoint: /api/decap/auth`,
-      );
-    }
-    await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
-      method: 'PUT',
-      body: {
-        message: 'chore: point the editor at this repo and the shared auth proxy',
-        content: b64encode(updated),
-        sha: cfg.sha,
-        branch: 'main',
-      },
-    });
-    ok('decap-configured', 'first deploy triggered');
-
-    // 7b. Set the site title to the site name — the template defaults to "Kantan HP".
-    // Best-effort: cosmetic, so a template layout change never fails provisioning.
-    let titled = false;
     try {
-      const cfgJson = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
-      const config = JSON.parse(b64decode(cfgJson.content));
-      if (config && config.site) {
-        config.site.title = slug;
-        await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
-          method: 'PUT',
-          body: {
-            message: 'chore: set site title to the site name',
-            content: b64encode(JSON.stringify(config, null, 2) + '\n'),
-            sha: cfgJson.sha,
-            branch: 'main',
-          },
-        });
-        titled = true;
-      }
-    } catch {
-      // ignore — the site is still fully provisioned
-    }
-    ok('site-titled', titled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
-
-    // 8. Register the site in D1 (drives the site list and the editor origin check)
-    const origin = `https://${slug}.pages.dev`;
-    await env.DB.prepare(
-      'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    )
-      .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, new Date().toISOString())
-      .run();
-    ok('site-registered', origin);
-
-    // Zero-knowledge: the GitHub token cookie dies the moment provisioning is done.
-    const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
-    headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
-
-    return new Response(
-      JSON.stringify(
-        {
-          ok: true,
-          steps,
-          site: {
-            name: slug,
-            repo: `https://github.com/${login}/${slug}`,
-            url: origin,
-            admin: `${origin}/admin`,
-            note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
-          },
+      // 4. Generate the repo from the template
+      const [tplOwner, tplName] = (env.TEMPLATE_REPO || 'kantan-hp/template').split('/');
+      // Stamp the exact template revision the site's core is provisioned from.
+      const tplRef = await gh(ghT, `/repos/${tplOwner}/${tplName}/git/ref/heads/main`);
+      const templateVersion = tplRef.ok ? (await tplRef.json()).object.sha : null;
+      if (!templateVersion) throw new Error('Could not read the template version — retry in a moment.');
+      await ghJson(ghT, `/repos/${tplOwner}/${tplName}/generate`, {
+        method: 'POST',
+        body: {
+          owner: login,
+          name: slug,
+          description: 'A kantan-hp site, provisioned by the kantan panel',
+          include_all_branches: false,
+          private: !sitePublic, // private by default; opt-in to public
         },
-        null,
-        2,
-      ),
-      { headers },
-    );
+      });
+      created.repo = true;
+      ok('repo-generated', `https://github.com/${login}/${slug}`);
+
+      // 5. Wait for the template contents to materialize
+      let cfg = null;
+      for (let i = 0; i < 10 && !cfg; i++) {
+        const res = await gh(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`);
+        if (res.status === 200) cfg = await res.json();
+        else await sleep(2000);
+      }
+      if (!cfg) throw new Error('The generated repository is still empty — GitHub is slow; retry in a minute.');
+      ok('repo-ready');
+
+      // 6. Repo secrets for the deploy workflow (GitHub sealed-box encryption)
+      const pub = await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/public-key`);
+      const keyBytes = Uint8Array.from(atob(pub.key), (c) => c.charCodeAt(0));
+      const putSecret = async (name, value) => {
+        const sealed = sodium.seal(new TextEncoder().encode(value), keyBytes);
+        let bin = '';
+        for (const b of sealed) bin += String.fromCharCode(b);
+        await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/${name}`, {
+          method: 'PUT',
+          body: { encrypted_value: btoa(bin), key_id: pub.key_id },
+        });
+      };
+      await putSecret('CF_API_TOKEN', cfToken);
+      await putSecret('CF_ACCOUNT_ID', accountId);
+      await putSecret('CF_PAGES_PROJECT', slug);
+      ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID, CF_PAGES_PROJECT');
+
+      // 7. Branded: set the canonical-site-URL repo variable BEFORE the
+      //    deploy-triggering commit. GitHub Actions resolves repo variables when
+      //    a run starts, so setting PUBLIC_SITE_URL after the commit below would
+      //    ship a placeholder RSS/sitemap canonical on the first deploy.
+      if (branded) {
+        await ghJson(ghT, `/repos/${login}/${slug}/actions/variables`, {
+          method: 'POST',
+          body: { name: 'PUBLIC_SITE_URL', value: `https://${slug}.kantan-hp.fyi` },
+        });
+      }
+
+      // 8. Point the editor at this repo + the panel's shared auth proxy.
+      //    This commit is also the first push, which triggers the deploy.
+      const current = b64decode(cfg.content);
+      let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
+      if (updated === current) throw new Error('Could not find the repo: line in config.yml.');
+      if (!/^\s*base_url:/m.test(updated)) {
+        updated = updated.replace(
+          /^(\s*)branch:.*$/m,
+          `$1branch: main\n$1base_url: ${panelOrigin}\n$1auth_endpoint: /api/decap/auth`,
+        );
+      }
+      await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
+        method: 'PUT',
+        body: {
+          message: 'chore: point the editor at this repo and the shared auth proxy',
+          content: b64encode(updated),
+          sha: cfg.sha,
+          branch: 'main',
+        },
+      });
+      ok('decap-configured', 'first deploy triggered');
+
+      // 8b. Branded address: attach the domain to the user's Pages project
+      //     (user token) + create the proxied CNAME in our zone (operator
+      //     token). The branded domain lives in OUR zone but the Pages project
+      //     in the user's account, so Cloudflare requires an ownership TXT
+      //     before the domain activates — we create it in our zone with the
+      //     operator token. Activation is async (DNS + certificate issuance);
+      //     poll briefly and report the honest status.
+      if (branded) {
+        const attach = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains`, {
+          method: 'POST',
+          body: { name: `${slug}.kantan-hp.fyi` },
+        });
+        created.domainAttach = `${slug}.kantan-hp.fyi`;
+        if (
+          attach &&
+          attach.validation_data &&
+          attach.validation_data.status === 'pending' &&
+          attach.validation_data.method === 'txt' &&
+          attach.validation_data.txt_name &&
+          attach.validation_data.txt_value
+        ) {
+          const txt = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records`, {
+            method: 'POST',
+            body: {
+              type: 'TXT',
+              name: attach.validation_data.txt_name,
+              content: attach.validation_data.txt_value,
+              ttl: 1,
+            },
+          });
+          created.ownershipTxt = txt.id;
+        }
+        const dns = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records`, {
+          method: 'POST',
+          body: { type: 'CNAME', name: `${slug}.kantan-hp.fyi`, content: `${slug}.pages.dev`, proxied: true, ttl: 1 },
+        });
+        created.dns = dns.id;
+        let domainStatus = 'pending';
+        try {
+          for (let i = 0; i < 8 && domainStatus !== 'active'; i++) {
+            const dom = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${slug}.kantan-hp.fyi`);
+            domainStatus = (dom && dom.status) || 'pending';
+            if (domainStatus !== 'active') await sleep(2000);
+          }
+        } catch {
+          // the deploy is not blocked by the domain lifecycle; report pending
+        }
+        if (domainStatus === 'active') {
+          ok('branded-domain', `https://${slug}.kantan-hp.fyi active`);
+        } else if (domainStatus === 'error' || domainStatus === 'blocked' || domainStatus === 'deactivated') {
+          // A permanent validation failure (e.g. the TXT/CNAME never validates)
+          // must not be reported as an eventual success — surface it as a failed
+          // step; the site itself still serves at pages.dev.
+          fail('branded-domain', `https://${slug}.kantan-hp.fyi could not be validated (${domainStatus}) — the site still works at ${pagesDevUrl}`);
+        } else {
+          ok('branded-domain', `https://${slug}.kantan-hp.fyi pending — activates once Cloudflare validates the DNS records`);
+        }
+      }
+
+      // 8c. Set the site title to the site name — the template defaults to "Kantan HP".
+      // Best-effort: cosmetic, so a template layout change never fails provisioning.
+      let titled = false;
+      try {
+        const cfgJson = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
+        const config = JSON.parse(b64decode(cfgJson.content));
+        if (config && config.site) {
+          config.site.title = slug;
+          await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
+            method: 'PUT',
+            body: {
+              message: 'chore: set site title to the site name',
+              content: b64encode(JSON.stringify(config, null, 2) + '\n'),
+              sha: cfgJson.sha,
+              branch: 'main',
+            },
+          });
+          titled = true;
+        }
+      } catch {
+        // ignore — the site is still fully provisioned
+      }
+      ok('site-titled', titled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
+
+      // 9. Register the site in D1 (drives the site list and the editor origin
+      //    check). Branded sites get the branded canonical origin + deploy_url;
+      //    pages.dev-only sites keep origin = pages.dev and deploy_url = NULL.
+      const origin = branded ? `https://${slug}.kantan-hp.fyi` : pagesDevUrl;
+      const deployUrl = branded ? pagesDevUrl : null;
+      await env.DB.prepare(
+        'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, deploy_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+        .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, deployUrl, new Date().toISOString())
+        .run();
+      created.origin = origin;
+      ok('site-registered', origin);
+
+      // Zero-knowledge: the GitHub token cookie dies the moment provisioning is done.
+      const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
+      headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
+
+      return new Response(
+        JSON.stringify(
+          {
+            ok: true,
+            steps,
+            site: {
+              name: slug,
+              repo: `https://github.com/${login}/${slug}`,
+              url: origin,
+              admin: `${origin}/admin`,
+              pagesDevUrl,
+              note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
+            },
+          },
+          null,
+          2,
+        ),
+        { headers },
+      );
+    } catch (err) {
+      await rollback();
+      throw err;
+    }
   } catch (err) {
     fail('error', String((err && err.message) || err));
     return json({ ok: false, error: String((err && err.message) || err), steps }, 400);

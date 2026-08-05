@@ -87,14 +87,68 @@ export function parseCookies(header) {
   return out;
 }
 
-/** True only for https origins on pages.dev (provisioned sites' default domain). */
+/** Branded subdomain suffix for every provisioned site's canonical origin. */
+export const BRANDED_SUFFIX = '.kantan-hp.fyi';
+
+/** Default Cloudflare Pages domain suffix, kept as the deploy_url. */
+export const PAGES_SUFFIX = '.pages.dev';
+
+/** True for https origins on pages.dev or kantan-hp.fyi (provisioned sites). */
 export function isAllowedSiteOrigin(origin) {
   try {
     const u = new URL(origin);
-    return u.protocol === 'https:' && u.hostname.endsWith('.pages.dev');
+    return (
+      u.protocol === 'https:' &&
+      (u.hostname.endsWith(PAGES_SUFFIX) || u.hostname.endsWith(BRANDED_SUFFIX))
+    );
   } catch {
     return false;
   }
+}
+
+/** The canonical origin a provisioned site is reachable at: https://<slug>.kantan-hp.fyi. */
+export function canonicalOrigin(slug) {
+  return `https://${slug}${BRANDED_SUFFIX}`;
+}
+
+/** Panel paths and trademark-ish words that only collide on the branded namespace. */
+const RESERVED_SLUGS = new Set([
+  'app', 'api', 'oauth', 'admin', 'mail', 'www', 'support', 'login', 'account',
+  'docs', 'status', 'blog', 'dashboard', 'help', 'cdn', 'assets', 'files',
+  'static', 'graphql', 'registry', 'security', 'abuse', 'about', 'terms',
+  'privacy', 'billing', 'events', 'explore',
+]);
+
+/** Brand family: exact kantan words + common typos (case handled separately). */
+const BRAND_SLUGS = new Set([
+  'kantan', 'kantan-hp', 'kantan-hp-fyi', 'kantan-app', 'kantan-blog',
+  'kantan-cms', 'api-kantan', 'kantan-api', 'blog', 'explore',
+  'kanntan', 'kantaan', 'kanta-hp', 'kantanhp', 'kanta-hp-fyi',
+]);
+
+/**
+ * Brand squat guard for ANY namespace: the kantan brand (substring) or an exact
+ * brand word/typo. Applied on every provisioning path — a kantan-brand squat is
+ * a squat whether or not the branded box is checked.
+ */
+export function isBrandSlug(slug) {
+  const s = String(slug || '').toLowerCase();
+  return s.includes('kantan') || BRAND_SLUGS.has(s);
+}
+
+/**
+ * Full denylist for the branded *.kantan-hp.fyi namespace: brand squat guard
+ * plus panel-path words that would collide with panel routes on the apex.
+ * The D1 reserved_slugs table (seeded by migration 0003) is an additional,
+ * deploy-less-updatable check done in index.js for branded provisioning.
+ */
+export function isReservedSlug(slug) {
+  return isBrandSlug(slug) || RESERVED_SLUGS.has(String(slug || '').toLowerCase());
+}
+
+/** Subdomain slugs must be 4–32 chars. */
+export function slugLengthOk(slug) {
+  return slug.length >= 4 && slug.length <= 32;
 }
 
 /** Lowercase + trim an email address for storage/lookup. */
