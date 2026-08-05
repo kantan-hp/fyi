@@ -640,15 +640,24 @@ export function stringsFor(locale) {
   return ui[locale] || ui[DEFAULT_LOCALE];
 }
 
-// A footer language switcher for the panel shell: native names, current marked.
+// A collapsed language switcher for the panel shell: shows only the current
+// language; clicking it expands all four (native names) upward, and choosing
+// one navigates via /setlang (full reload → the new language, collapsed again).
+// The expand/collapse toggle is wired by the script in shell().
 export function languageSwitcher(locale, currentPath) {
   const next = currentPath && currentPath !== '/' ? `&next=${encodeURIComponent(currentPath)}` : '';
   return (
     `<nav class="lang-switch" aria-label="${t(locale, 'switchLanguage')}">` +
+    `<button type="button" class="lang-toggle" aria-expanded="false" aria-controls="lang-list">` +
+    `<span class="lang-current">${nativeNames[locale]}</span>` +
+    `<span class="lang-caret" aria-hidden="true">▾</span>` +
+    `</button>` +
+    `<ul class="lang-list hidden" id="lang-list">` +
     LOCALES.map(
       (l) =>
-        `<a href="/setlang?l=${l}${next}" lang="${l}"${l === locale ? ' aria-current="true"' : ''}>${nativeNames[l]}</a>`,
+        `<li><a href="/setlang?l=${l}${next}" lang="${l}"${l === locale ? ' aria-current="true"' : ''}>${nativeNames[l]}</a></li>`,
     ).join('') +
-    '</nav>'
+    `</ul>` +
+    `</nav>`
   );
 }
