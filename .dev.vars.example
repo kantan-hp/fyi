@@ -11,9 +11,16 @@ GITHUB_CLIENT_SECRET=
 SESSION_SECRET=
 
 # Transactional email (Resend free tier) for magic links. Optional in dev —
-# without it, the panel shows the login link on screen instead of emailing it.
+# without it, the panel shows the login link on screen instead of emailing it,
+# but only when DEV_MAGIC_LINK=true is also set (the on-screen-link fallback is
+# a development convenience, never a production behavior).
 RESEND_API_KEY=
 EMAIL_FROM=noreply@kantan-hp.fyi
+
+# Development-only: allow the magic link to be shown on screen when no mail
+# provider is configured. Do NOT set in production — it would let the login
+# response expose a login link during a mail-provider outage.
+DEV_MAGIC_LINK=true
 
 # Operator DNS token for branded *.kantan-hp.fyi subdomains (Zone: DNS: Edit,
 # scoped to the kantan-hp.fyi zone only). Required only when the wizard's
