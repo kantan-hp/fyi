@@ -33,6 +33,14 @@ test('welcomePage renders and any inline scripts parse', () => {
   assert.ok(welcomePage({ email: 'a@b.co' }).length > 0);
 });
 
+test('footer is pinned to the bottom on every page (sticky footer)', () => {
+  const p = welcomePage({ email: 'a@b.co' });
+  assert.ok(p.includes('min-height: 100vh'), 'body pins to viewport height');
+  assert.ok(p.includes('flex: 1 0 auto'), '.wrap grows to push the footer down');
+  assert.ok(p.includes('flex-shrink: 0'), 'footer does not shrink');
+  assert.ok(/<body>[\s\S]*?<footer class="panel-footer">/.test(p), 'footer is a direct body child');
+});
+
 test('loginPage inline scripts parse (with and without sitekey)', () => {
   assert.ok(parseInlineScripts(loginPage({}, { turnstileSitekey: '0x4AAAAAAA-test' })) >= 1);
   assert.ok(parseInlineScripts(loginPage({})) >= 1);
