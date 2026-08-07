@@ -300,7 +300,7 @@ function esc(s) {
 
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
-    title,
+    esc(title),
     `<main class="wrap"><div class="card">
       <h2>${esc(title)}</h2>
       <p>${esc(text)}</p>
@@ -350,7 +350,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/">kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${email} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
+        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}

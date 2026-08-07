@@ -110,6 +110,14 @@ export default {
       // Language switcher: set the kantan_lang cookie and return to the page.
       if (pathname === '/setlang' && method === 'GET') return setLang(request);
 
+      // CSRF barrier: every /api/* POST must declare a JSON body. SameSite=Lax
+      // does not protect against same-site origins (branded *.kantan-hp.fyi
+      // sites are same-site with the panel), and a "simple request" carrying a
+      // text/plain body would otherwise ride the victim's session cookies.
+      if (method === 'POST' && pathname.startsWith('/api/') && !(request.headers.get('content-type') || '').startsWith('application/json')) {
+        return json({ ok: false, error: 'Content-Type must be application/json.' }, 415);
+      }
+
       // Panel APIs
       if (pathname === '/api/login' && method === 'POST') return loginIssue(request, env);
       if (pathname === '/api/logout') return logout(request);
@@ -321,9 +329,19 @@ async function loginIssue(request, env) {
   const link = `${base}/login/callback?code=${code}`;
   const sent = await sendMagicEmail(env, normalized, link);
   if (!sent.ok) {
-    // No working mail provider (dev): surface the link so the flow is testable,
-    // with the provider's reason so misconfiguration is self-diagnosing.
-    return json({ ok: true, devLink: link, note: `Magic link shown instead of emailed: ${sent.reason}` });
+    // The magic link is a bearer credential — it must have exactly one delivery
+    // channel (the mailbox). Surface it only when NO provider is configured AND
+    // an explicit dev flag is set; a provider ERROR must never leak the link
+    // (returning it on any failure converts a Resend incident into account
+    // takeover). Prod failure returns a safe, link-less error.
+    const devFallback = (!env.RESEND_API_KEY || !env.EMAIL_FROM) && env.DEV_MAGIC_LINK === 'true';
+    if (devFallback) {
+      return json({ ok: true, devLink: link, note: `Magic link shown instead of emailed: ${sent.reason}` });
+    }
+    return json(
+      { ok: false, error: 'Could not send the login link — try again in a few minutes.' },
+      502,
+    );
   }
   return json({ ok: true });
 }
@@ -493,15 +511,29 @@ async function oauthCallback(request, env) {
     return html(messagePage(t(locale, 'invalidOauth'), t(locale, 'invalidOauthBody'), { locale, pathname: '/oauth/callback' }), 403);
   }
   if (!code) {
-    // The user cancelled on GitHub (or the flow errored before a code). Send
-    // them back to /app so the client can reset the site's pending check state
-    // instead of dead-ending on a bare text page (which left the panel stuck on
-    // "Checking…" and looped back into /auth/github).
+    // The user cancelled on GitHub (or the flow errored before a code). For the
+    // editor flow, relay the real reason to the editor window via the handshake
+    // page (postMessage) so Sveltia shows "Authentication failed / cancelled"
+    // instead of hanging on "Signing in…" until the popup is closed. The wizard
+    // flow keeps the /app redirect so the panel client can reset its pending
+    // check state.
+    const reason = 'Authentication cancelled — the login window was closed before finishing.';
+    if (state.flow === 'decap') {
+      return new Response(renderDecapHandshake({ error: reason, message: reason }), {
+        headers: { 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce },
+      });
+    }
     return toApp(new Headers({ location: '/app' }));
   }
 
   const result = await exchangeCode(env, code);
   if (result.error) {
+    const reason = result.error_description || 'GitHub could not complete the login — try again.';
+    if (state.flow === 'decap') {
+      return new Response(renderDecapHandshake({ error: reason, message: reason }), {
+        headers: { 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce },
+      });
+    }
     return toApp(new Headers({ location: '/app' }));
   }
 
@@ -563,6 +595,12 @@ function renderDecapHandshake(content) {
           (u.hostname.endsWith('.pages.dev') || u.hostname.endsWith('.kantan-hp.fyi'));
         if (!allowed) {
           throw new Error('origin is not a provisioned site');
+        }
+        // Pre-handshake OAuth failure (user cancelled, exchange failed): relay
+        // the real reason to the editor instead of letting it hang on
+        // "Signing in…". No token is present in this payload.
+        if (PAYLOAD.error) {
+          throw new Error(PAYLOAD.error);
         }
         const look = await fetch('/api/decap/lookup?origin=' + encodeURIComponent(origin));
         if (!look.ok) throw new Error('site is not registered with this panel');
@@ -710,6 +748,10 @@ async function kvRateLimit(env, name, identity, max, windowSeconds) {
 // acceptable for an advisory limit; the authoritative caps are per-identity.
 const IP_LIMITS = new Map();
 function ipRateLimit(request, name, max, windowSeconds) {
+  // max <= 0 is the operator's documented kill-switch for this gate: reject
+  // every request, including the first one in a window (the cache-miss branch
+  // below would otherwise allow it before ever comparing against max).
+  if (max <= 0) return false;
   const key = `${name}:${clientIp(request)}`;
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
@@ -854,38 +896,47 @@ async function provision(request, env) {
   // External resources are torn down first and the D1 row is deleted LAST, so a
   // partial cleanup leaves a registry record an operator can see and finish.
   const created = {};
+  // Hoisted to function scope so `rollback` (defined before the try block) can
+  // see them — the previous block-scoped declarations inside `try` were out of
+  // scope in the closure, so repo/Pages/domain cleanup silently never ran.
+  let slug, accountId, ghT, login;
   const rollback = async () => {
-    const job = async (fn) => {
+    const failed = [];
+    const job = async (step, fn) => {
       try {
         await fn();
-      } catch {
-        // best-effort — a cleanup failure is logged by the caller's error path
+      } catch (err) {
+        // Best-effort cleanup, but never silent: log the step (non-PII) so the
+        // operator can find stranded resources, and report it to the user.
+        failed.push(step);
+        console.log(JSON.stringify({ ev: 'rollback-step-failed', step, t: Date.now() }));
       }
     };
     if (created.dns) {
-      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.dns}`, { method: 'DELETE' }));
+      await job('dns', () => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.dns}`, { method: 'DELETE' }));
     }
     if (created.ownershipTxt) {
-      await job(() => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.ownershipTxt}`, { method: 'DELETE' }));
+      await job('ownership-txt', () => cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${created.ownershipTxt}`, { method: 'DELETE' }));
     }
     if (created.domainAttach) {
-      await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
+      await job('domain-attach', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
     }
     if (created.pagesProject) {
-      await job(() => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
+      await job('pages-project', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
     }
     if (created.repo) {
-      await job(() => gh(ghT, `/repos/${login}/${slug}`, { method: 'DELETE' }));
+      await job('repo', () => gh(ghT, `/repos/${login}/${slug}`, { method: 'DELETE' }));
     }
     if (created.origin) {
-      await job(() => env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(created.origin).run());
+      await job('d1-row', () => env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(created.origin).run());
     }
+    return failed;
   };
 
   try {
     // Cheap input validation runs BEFORE the rate-limit gates so a user
     // experimenting with names (reserved/short) never burns the creation budget.
-    const slug = slugifySiteName(siteName);
+    slug = slugifySiteName(siteName);
     if (!slug) throw new Error('Invalid site name — use letters, numbers and dashes (e.g. "my-blog").');
     if (!cfToken) throw new Error('Cloudflare API token is required.');
     const branded = siteBranded === true;
@@ -909,8 +960,8 @@ async function provision(request, env) {
     if ((await siteCountForLogin(env, wizard.login)) >= siteCap) {
       return rateLimited('site-cap', `You already have ${siteCap} sites on kantan — that's the current per-account limit.`);
     }
-    const ghT = wizard.t;
-    const login = wizard.login;
+    ghT = wizard.t;
+    login = wizard.login;
     const email = session.sub;
     const panelOrigin = panelBase(env, request);
     const pagesDevUrl = `https://${slug}.pages.dev`;
@@ -936,7 +987,7 @@ async function provision(request, env) {
 
     // 1. Cloudflare account (auto-discovered from the token)
     const accounts = await cf(cfToken, '/accounts?per_page=50');
-    let accountId = cfAccountId;
+    accountId = cfAccountId;
     if (!accountId) {
       // No explicit account: auto-discover, which needs the token to list accounts.
       if (accounts.length !== 1) {
@@ -1215,7 +1266,14 @@ async function provision(request, env) {
         { headers },
       );
     } catch (err) {
-      await rollback();
+      const failed = await rollback();
+      if (failed.length && login && slug) {
+        const hint =
+          failed.includes('repo')
+            ? ` Cleanup is incomplete — please delete https://github.com/${login}/${slug} manually.`
+            : ' Some resources may need manual cleanup — please retry or contact support.';
+        err.message = String((err && err.message) || err) + hint;
+      }
       throw err;
     }
   } catch (err) {
@@ -1239,12 +1297,16 @@ async function templateParts(env) {
 }
 
 /** Current template main SHA, cached in KV to keep GitHub read traffic low. */
-async function templateMainSha(env) {
+async function templateMainSha(env, token) {
   const cacheKey = 'template:main-sha';
   const cached = await env.KV.get(cacheKey).catch(() => null);
   if (cached) return cached;
   const { owner, name } = templateParts(env);
-  const ref = await ghJson(null, `/repos/${owner}/${name}/git/ref/heads/main`);
+  // Authenticated read: callers always hold the short-lived wizard token, and
+  // an unauthenticated call from a shared Worker egress IP shares GitHub's
+  // ~60 req/h per-IP budget with unrelated customers (a 403 here silently
+  // kills check/update/baseline until the cache warms).
+  const ref = await ghJson(token, `/repos/${owner}/${name}/git/ref/heads/main`);
   const sha = ref.object.sha;
   await env.KV.put(cacheKey, sha, { expirationTtl: 300 }).catch(() => {});
   return sha;
@@ -1286,7 +1348,7 @@ async function templateCiGreen(token, owner, name) {
 async function siteVersionStatus(env, token, site) {
   const [tplOwner, tplName] = templateParts(env);
   const recorded = site.template_version || null;
-  const current = await templateMainSha(env);
+  const current = await templateMainSha(env, token);
   const result = { from: recorded, to: current };
 
   if (!recorded) {
@@ -1538,7 +1600,7 @@ async function siteBaseline(request, env) {
   if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
 
   try {
-    const current = await templateMainSha(env);
+    const current = await templateMainSha(env, wizard.t);
 
     // Baseline is only accepted when the site's core actually matches the current
     // template — never silently assumed clean. A dirty baseline is rejected and

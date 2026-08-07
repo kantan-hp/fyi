@@ -88,7 +88,11 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
 
 For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run dev`.
 Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
-emailing it, so the whole flow is testable locally with zero setup.
+emailing it, so the whole flow is testable locally with zero setup. That fallback
+is deliberately gated to development: it only fires when the mail provider is
+unconfigured **and** `DEV_MAGIC_LINK=true` is set — on a provider *error* (e.g. a
+Resend outage) the panel returns a plain "could not send" error and never leaks
+the login link, because a magic link is a bearer credential.
 
 ## Rate limiting (layered)
 

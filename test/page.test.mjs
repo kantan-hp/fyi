@@ -19,6 +19,16 @@ function parseInlineScripts(page) {
   return blocks.length;
 }
 
+test('messagePage escapes HTML in title/text and email is escaped in appPage', () => {
+  const evil = '<script>alert(1)</script>';
+  const p = messagePage(evil, evil);
+  assert.ok(!p.includes('<script>alert(1)</script>'), 'raw payload must not appear');
+  assert.ok(p.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  const app = appPage({ email: 'x" onmouseover="evil"@evil.tld', sites: [], hasSites: false }, {});
+  assert.ok(!app.includes('onmouseover="evil"'), 'email must not inject an attribute');
+  assert.ok(app.includes('&quot;'));
+});
+
 test('welcomePage renders and any inline scripts parse', () => {
   assert.ok(welcomePage({ email: 'a@b.co' }).length > 0);
 });

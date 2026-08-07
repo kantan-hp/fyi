@@ -176,7 +176,10 @@ export function canonicalizeEmail(input) {
 }
 
 export function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // Reject HTML-significant characters in the local part — email addresses are
+  // rendered server-side into panel pages, and a quoted local part like
+  // `x"><img onerror=…>` would otherwise inject markup.
+  return /^[^\s@<>"'`]+@[^\s@<>"'`]+\.[^\s@<>"'`]+$/.test(email);
 }
 
 /** N random bytes as hex — magic-link codes. */
