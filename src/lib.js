@@ -1,6 +1,8 @@
 // Pure helpers shared by the worker routes. Kept free of worker-only APIs so
 // they can be unit-tested with plain `node --test`.
 
+import { zipSync, Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -28,6 +30,19 @@ export function b64decode(b64) {
   const bin = atob(String(b64).replace(/\s/g, ''));
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return textDecoder.decode(bytes);
+}
+
+/** Base64 → raw bytes (for binary payloads like zip bundles). */
+export function b64decodeBytes(b64) {
+  const bin = atob(String(b64).replace(/\s/g, ''));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Raw bytes → base64 (for binary-safe re-encoding). */
+export function b64encodeBytes(u8) {
+  let bin = '';
+  for (const b of u8) bin += String.fromCharCode(b);
+  return btoa(bin);
 }
 
 function b64urlEncode(str) {
@@ -402,4 +417,119 @@ export function upgradeState(status) {
   if (status.ciGreen === false) return { state: 'N/A', reason: 'ci' };
   if (status.from && status.to && status.from !== status.to) return { state: 'yes', reason: null };
   return { state: 'no', reason: null };
+}
+
+// ---------------------------------------------------------------------------
+// Content transfer — the user data contract as an export/import bundle. The
+// portable set is exactly the three user-owned paths (isUserDataPath): no core,
+// no config.yml (its backend lines are re-injected by the provisioner). Files
+// are carried as raw bytes end-to-end so binary media survives the round-trip.
+
+/** Upper bound on a bundle's compressed size (defends against oversized uploads). */
+export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
+/** Upper bound on a bundle's total decompressed size (defends against zip bombs). */
+export const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+/** Upper bound on the number of files an imported bundle may carry. */
+export const MAX_BUNDLE_FILES = 1000;
+
+/** The blob paths in a repo tree that belong to the user data contract. */
+export function transferPathsFromTree(tree) {
+  return (tree || [])
+    .filter((entry) => entry.type === 'blob' && isUserDataPath(entry.path))
+    .map((entry) => entry.path);
+}
+
+/** Build a zip (Uint8Array) from [{path, data}] — the export bundle. */
+export function buildZip(files) {
+  const entries = {};
+  for (const f of files || []) entries[f.path] = f.data;
+  return zipSync(entries);
+}
+
+/**
+ * Streaming unzip with a hard cap on the total decompressed bytes. `Unzip`
+ * emits each file's data incrementally via `ondata`, so a zip bomb (tiny
+ * compressed, huge uncompressed) is aborted as soon as the running total passes
+ * MAX_UNCOMPRESSED_BYTES — before the whole payload is ever materialized. This
+ * counts the actual output, so neither spoofed central-directory sizes nor
+ * ZIP64 archives can bypass it.
+ */
+function unzipLimited(bytes) {
+  return new Promise((resolve, reject) => {
+    const files = [];
+    let total = 0;
+    let failed = false;
+    const fail = (err) => {
+      if (!failed) {
+        failed = true;
+        reject(err);
+      }
+    };
+    const unzip = new Unzip();
+    unzip.register(UnzipInflate);
+    unzip.register(UnzipPassThrough);
+    unzip.onfile = (file) => {
+      if (failed) return;
+      const chunks = [];
+      let fileSize = 0;
+      file.ondata = (err, data, final) => {
+        if (failed) return;
+        if (err) {
+          fail(new Error('content bundle is unreadable: ' + (err.message || 'decode error')));
+          return;
+        }
+        fileSize += data.length;
+        total += data.length;
+        if (total > MAX_UNCOMPRESSED_BYTES) {
+          fail(new Error('content bundle is too large when unpacked'));
+          return;
+        }
+        chunks.push(data);
+        if (final) {
+          const out = new Uint8Array(fileSize);
+          let off = 0;
+          for (const c of chunks) {
+            out.set(c, off);
+            off += c.length;
+          }
+          files.push({ path: file.name, data: out });
+        }
+      };
+      file.start();
+    };
+    // Push in chunks so a bomb can be aborted between chunks instead of being
+    // fully inflated in a single call.
+    const CHUNK = 16 * 1024;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      if (failed) break;
+      unzip.push(bytes.subarray(i, i + CHUNK), i + CHUNK >= bytes.length);
+    }
+    if (!failed) resolve(files);
+  });
+}
+
+/**
+ * Parse a zip bundle into [{path, data}] (raw bytes), keeping only user-data
+ * paths so a malformed or hostile bundle can never smuggle a core/config.yml
+ * file into an import. Rejects bundles over the compressed size, total
+ * decompressed size (streaming cap), and file-count limits.
+ */
+export async function parseZip(bytes) {
+  if (!(bytes instanceof Uint8Array)) throw new Error('content bundle must be bytes');
+  if (bytes.length > MAX_BUNDLE_BYTES) throw new Error('content bundle is too large');
+  const files = (await unzipLimited(bytes)).filter((f) => isUserDataPath(f.path));
+  if (files.length > MAX_BUNDLE_FILES) throw new Error('content bundle has too many files');
+  return files;
+}
+
+/** Set `site.lang` on an imported src/config.json (bytes), preserving the rest. */
+export function applyLangToConfig(data, lang) {
+  try {
+    const cfg = JSON.parse(textDecoder.decode(data));
+    const settings = Array.isArray(cfg) ? cfg[0] : cfg;
+    if (settings && settings.site) settings.site.lang = lang;
+    return textEncoder.encode(JSON.stringify(cfg, null, 2) + '\n');
+  } catch {
+    return data;
+  }
 }
