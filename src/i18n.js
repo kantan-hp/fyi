@@ -444,11 +444,11 @@ const ui = {
       'kantan（かんたん）就是「簡單」。用電子郵件登入，kantan 就會幫你搞定 GitHub 儲存庫、主機和編輯器。',
     welcomeHow: '運作方式',
     welcomeStep1: '用電子郵件登入 — 不需要密碼，也不用登入 GitHub。',
-    welcomeStep2: '連接 GitHub 和 Cloudflare — 貼上一次 Cloudflare 權杖，其餘交給 kantan。',
+    welcomeStep2: '連接 GitHub 和 Cloudflare — 貼上一次 Cloudflare 令牌，其餘交給 kantan。',
     welcomeStep3: '撰寫並發布 — 在友善的編輯器裡寫文章，每次儲存都會更新網站。',
-    welcomeKeys: '金鑰由你保管',
+    welcomeKeys: '憑證只屬於你',
     welcomeKeysBody:
-      'kantan 不會儲存你的 GitHub 或 Cloudflare 憑證。它們只會在建立網站的幾秒內使用，寫入你自己的儲存庫作為部署密鑰，然後隨即捨棄。你隨時可以撤銷或輪換。',
+      'kantan 不會儲存你的 GitHub 或 Cloudflare 憑證。它們只會在建立網站的幾秒內使用，寫入你自己的儲存庫作為部署密碼，然後隨即捨棄。你隨時可以撤銷或輪換。',
 
     loginTitle: '登入 — kantan',
     signIn: '登入',
@@ -472,19 +472,19 @@ const ui = {
 
     step2Title: '連接 Cloudflare',
     step2Body:
-      '貼上有 Cloudflare Pages: Edit 與 Account Settings: Read 權限的 API 權杖（建立一個 →「Create Custom Token」→ 加入兩項權限）。Account Settings: Read 讓我們自動偵測帳號；權杖只使用一次來建立網站，不會儲存在這裡。',
-    cfTokenPlaceholder: 'Cloudflare API 權杖',
-    verifyToken: '驗證權杖',
+      '貼上有 Cloudflare Pages: Edit 與 Account Settings: Read 權限的 API 令牌（建立一個 →「Create Custom Token」→ 加入兩項權限）。Account Settings: Read 讓我們自動偵測帳號；令牌只使用一次來建立網站，不會儲存在這裡。',
+    cfTokenPlaceholder: 'Cloudflare API 令牌',
+    verifyToken: '驗證令牌',
     cfAccount: 'Cloudflare 帳號',
     cfAccountId: 'Cloudflare 帳號 ID',
     cfAccountIdHint:
-      '此權杖無法列出帳號，請輸入它所屬的帳號 ID（dash.cloudflare.com → 選擇帳號 → 它就在網址中），或在權杖中加入 Account Settings: Read 後重新驗證。',
-    pasteTokenFirst: '請先貼上權杖。',
-    tokenRejected: '權杖被拒絕。需要「Cloudflare Pages: Edit」。',
-    tokenWorksAccount: '✓ 權杖有效 — 帳號：',
+      '此令牌無法列出帳號，請輸入它所屬的帳號 ID（dash.cloudflare.com → 選擇帳號 → 它就在網址中），或在令牌中加入 Account Settings: Read 後重新驗證。',
+    pasteTokenFirst: '請先貼上令牌。',
+    tokenRejected: '令牌被拒絕。需要「Cloudflare Pages: Edit」。',
+    tokenWorksAccount: '✓ 令牌有效 — 帳號：',
     accountsFound: '個帳號。請選擇要使用的帳號：',
     tokenCantList:
-      '✓ 權杖已驗證，但無法列出帳號。請輸入它所屬的 Cloudflare 帳號 ID，或加入「Account Settings: Read」。',
+      '✓ 令牌已驗證，但無法列出帳號。請輸入它所屬的 Cloudflare 帳號 ID，或加入「Account Settings: Read」。',
 
     step3Title: '為網站命名',
     step3Body: '這將成為儲存庫名稱與免費網址：<name>.pages.dev',
@@ -548,7 +548,7 @@ const ui = {
     deleteSite: '刪除網站',
     deleteConfirmTitle: '確定要刪除這個網站？',
     deleteConfirmBody: '這會永久刪除 GitHub 存放庫、Cloudflare Pages 專案和這筆註冊，無法復原。',
-    deleteCfToken: 'Cloudflare API 權杖（用於刪除 Pages 專案）',
+    deleteCfToken: 'Cloudflare API 令牌（用於刪除 Pages 專案）',
     deleteTypeHost: '輸入網站地址以確認：',
     deleteConfirm: '永久刪除',
     deleteCancel: '取消',
@@ -612,9 +612,9 @@ const ui = {
     welcomeStep1: '用电子邮件登录 — 不需要密码，也不用登录 GitHub。',
     welcomeStep2: '连接 GitHub 和 Cloudflare — 粘贴一次 Cloudflare 令牌，其余交给 kantan。',
     welcomeStep3: '撰写并发布 — 在友好的编辑器里写文章，每次保存都会更新网站。',
-    welcomeKeys: '密钥由你保管',
+    welcomeKeys: '凭据只属于你',
     welcomeKeysBody:
-      'kantan 不会存储你的 GitHub 或 Cloudflare 凭据。它们只会在创建网站的几秒内使用，写入你自己的仓库作为部署密钥，然后随即丢弃。你随时可以撤销或轮换。',
+      'kantan 不会存储你的 GitHub 或 Cloudflare 凭据。它们只会在创建网站的几秒内使用，写入你自己的仓库作为部署机密，然后随即丢弃。你随时可以撤销或轮换。',
 
     loginTitle: '登录 — kantan',
     signIn: '登录',
