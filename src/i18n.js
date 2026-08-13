@@ -242,6 +242,13 @@ const ui = {
     tooManyBody: 'Too many requests from this network — try again in a few minutes.',
     invalidOauth: 'Invalid OAuth state',
     invalidOauthBody: 'Please go back and try connecting GitHub again.',
+
+    emailLoginSubject: 'Your kantan login link',
+    emailLoginTitle: 'Sign in to kantan',
+    emailLoginBody: 'Click the button below to sign in to your kantan panel.',
+    emailLoginButton: 'Sign in',
+    emailLoginExpires: 'This link expires in 15 minutes.',
+    emailLoginIgnore: "If you didn't request this, you can safely ignore this email.",
   },
 
   ja: {
@@ -411,6 +418,13 @@ const ui = {
     tooManyBody: 'このネットワークからのリクエストが多すぎます — 数分後にもう一度お試しください。',
     invalidOauth: 'OAuth 状態が無効です',
     invalidOauthBody: '戻って GitHub の接続をもう一度お試しください。',
+
+    emailLoginSubject: 'kantan ログインリンク',
+    emailLoginTitle: 'kantan にログイン',
+    emailLoginBody: '下のボタンをクリックして kantan パネルにログインしてください。',
+    emailLoginButton: 'ログイン',
+    emailLoginExpires: 'このリンクは 15 分で有効期限が切れます。',
+    emailLoginIgnore: 'このメールに心当たりがない場合は、そのまま無視してください。',
   },
 
   'zh-Hant': {
@@ -577,6 +591,13 @@ const ui = {
     tooManyBody: '此網路的請求過多 — 請幾分鐘後再試。',
     invalidOauth: 'OAuth 狀態無效',
     invalidOauthBody: '請返回並重新連接 GitHub。',
+
+    emailLoginSubject: 'kantan 登入連結',
+    emailLoginTitle: '登入 kantan',
+    emailLoginBody: '點擊下方按鈕登入你的 kantan 面板。',
+    emailLoginButton: '登入',
+    emailLoginExpires: '此連結將於 15 分鐘後失效。',
+    emailLoginIgnore: '如果你沒有提出此要求，可以放心忽略這封郵件。',
   },
 
   'zh-Hans': {
@@ -743,6 +764,13 @@ const ui = {
     tooManyBody: '此网络的请求过多 — 请几分钟后再试。',
     invalidOauth: 'OAuth 状态无效',
     invalidOauthBody: '请返回并重新连接 GitHub。',
+
+    emailLoginSubject: 'kantan 登录链接',
+    emailLoginTitle: '登录 kantan',
+    emailLoginBody: '点击下方按钮登录你的 kantan 面板。',
+    emailLoginButton: '登录',
+    emailLoginExpires: '此链接将在 15 分钟后失效。',
+    emailLoginIgnore: '如果你没有提出此请求，可以放心忽略这封邮件。',
   },
 };
 

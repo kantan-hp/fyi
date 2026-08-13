@@ -51,7 +51,7 @@ import {
   b64encodeBytes,
   MAX_BUNDLE_BYTES,
 } from './lib.js';
-import { welcomePage, loginPage, messagePage, appPage } from './page.js';
+import { welcomePage, loginPage, messagePage, appPage, LOGO_B64 } from './page.js';
 import { resolveLocale, LANG_COOKIE, DEFAULT_LOCALE, isLocale, t } from './i18n.js';
 
 const GITHUB_API = 'https://api.github.com';
@@ -113,6 +113,7 @@ export default {
         return html(loginPage({}, { turnstileSitekey: env.TURNSTILE_SITEKEY, ...pageOpts }));
       }
       if (pathname === '/login/callback' && method === 'GET') return loginCallback(request, env);
+      if (pathname === '/logo.png' && method === 'GET') return logo();
       if (pathname === '/app' && method === 'GET') return appRoute(request, env);
       // Language switcher: set the kantan_lang cookie and return to the page.
       if (pathname === '/setlang' && method === 'GET') return setLang(request);
@@ -169,6 +170,15 @@ function html(body, status = 200) {
 
 function text(body, status = 200) {
   return new Response(body, { status, headers: { 'content-type': 'text/plain;charset=UTF-8' } });
+}
+
+// The kantan logo mark as a cacheable PNG. Served as a real asset (rather than
+// the data URI the panel pages use) so the magic-link email's <img> can reference
+// it by URL — Gmail and many clients strip data-URI images.
+function logo() {
+  return new Response(b64decodeBytes(LOGO_B64), {
+    headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' },
+  });
 }
 
 function cookie(name, value, { secure = true, maxAge } = {}) {
@@ -354,7 +364,7 @@ async function loginIssue(request, env) {
   // so magic links keep working even if the panel was opened over http.
   const base = panelBase(env, request);
   const link = `${base}/login/callback?code=${code}`;
-  const sent = await sendMagicEmail(env, normalized, link);
+  const sent = await sendMagicEmail(env, normalized, link, base, resolveLocale(request));
   if (!sent.ok) {
     // The magic link is a bearer credential — it must have exactly one delivery
     // channel (the mailbox). Surface it only when NO provider is configured AND
@@ -373,10 +383,53 @@ async function loginIssue(request, env) {
   return json({ ok: true });
 }
 
-async function sendMagicEmail(env, email, link) {
+// The magic-link email: an inline-styled HTML body (matching the panel's off-white
+// background, near-black text, and pill CTA) plus a plain-text fallback, localized
+// to the same language the request was viewed in. The logo is referenced by URL
+// (/logo.png) because email clients don't reliably render data-URI images.
+const EMAIL_FROM_NAME = 'kantan';
+
+// Pure builder (exported for tests): the localized subject + HTML/text bodies.
+export function buildMagicEmail(locale, link, logoUrl) {
+  const subject = t(locale, 'emailLoginSubject');
+  const title = t(locale, 'emailLoginTitle');
+  const body = t(locale, 'emailLoginBody');
+  const button = t(locale, 'emailLoginButton');
+  const expires = t(locale, 'emailLoginExpires');
+  const ignore = t(locale, 'emailLoginIgnore');
+  // Email clients need table layout + inline styles; no <style> tag is reliably
+  // honored (Gmail strips it). Tokens mirror the panel's design system.
+  const html = `<!doctype html>
+<html lang="${locale}">
+<body style="margin:0;padding:0;background:#faf9f7;color:#1a1a1a;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#faf9f7;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="520" cellspacing="0" cellpadding="0" style="width:100%;max-width:520px;background:#ffffff;border:1px solid #e8e6e1;border-radius:14px;">
+        <tr><td style="padding:24px 28px;">
+          <table role="presentation" cellspacing="0" cellpadding="0"><tr>
+            <td style="vertical-align:middle;"><img src="${logoUrl}" width="24" height="24" alt="kantan" style="display:block;border:0;width:24px;height:24px;" /></td>
+            <td style="vertical-align:middle;padding-left:8px;font-weight:700;font-size:17px;letter-spacing:-.01em;">kantan</td>
+          </tr></table>
+          <h1 style="font-size:20px;margin:24px 0 8px;letter-spacing:-.02em;">${title}</h1>
+          <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 20px;">${body}</p>
+          <p style="margin:0 0 20px;"><a href="${link}" style="display:inline-block;background:#1a1a1a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;border-radius:999px;">${button}</a></p>
+          <p style="font-size:13px;color:#777;line-height:1.6;margin:0 0 4px;">${expires}</p>
+          <p style="font-size:13px;color:#777;line-height:1.6;margin:0;">${ignore}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  const text = `${title}\n\n${body}\n\n${link}\n\n${expires}\n${ignore}`;
+  return { subject, html, text };
+}
+
+async function sendMagicEmail(env, email, link, base, locale) {
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
     return { ok: false, reason: 'RESEND_API_KEY or EMAIL_FROM not configured' };
   }
+  const { subject, html, text } = buildMagicEmail(locale, link, `${base}/logo.png`);
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -384,10 +437,11 @@ async function sendMagicEmail(env, email, link) {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      from: env.EMAIL_FROM,
+      from: `${EMAIL_FROM_NAME} <${env.EMAIL_FROM}>`,
       to: [email],
-      subject: 'Your kantan login link',
-      text: `Open this link to sign in to your kantan panel (expires in 15 minutes):\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.`,
+      subject,
+      html,
+      text,
     }),
   });
   if (!res.ok) {

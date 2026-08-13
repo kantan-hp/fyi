@@ -9,8 +9,9 @@ turns [kantan-hp](https://github.com/kantan-hp/template) setup into:
 
 1. **Welcome page** — a one-pager explaining kantan and the 3-step pitch.
 2. **Email-only login** — no passwords, no GitHub login for the *panel*: a
-   single-use magic link is emailed, and clicking it sets an HMAC-signed session
-   cookie.
+   single-use magic link is emailed (an inline-styled HTML message carrying the
+   kantan logo, localized to the language the page was viewed in), and clicking
+   it sets an HMAC-signed session cookie.
 3. **Wizard or site table** — `/app` shows the setup wizard if you have no sites
    yet, or a table (name, created date, links to your live site and its `/admin`
    editor) once you do.
@@ -80,7 +81,7 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
    npx wrangler secret put GITHUB_CLIENT_SECRET
    npx wrangler secret put SESSION_SECRET    # any long random string
    npx wrangler secret put RESEND_API_KEY    # free tier is fine
-   npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi
+   npx wrangler secret put EMAIL_FROM        # e.g. noreply@kantan-hp.fyi (shown as "kantan <…>")
    npx wrangler secret put CF_ZONE_DNS_TOKEN # Zone: DNS: Edit, kantan-hp.fyi only — for branded subdomains
    npx wrangler secret put TURNSTILE_SECRET   # Turnstile siteverify secret (set TURNSTILE_SITEKEY as a var)
    ```
