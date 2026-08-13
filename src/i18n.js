@@ -255,7 +255,7 @@ const ui = {
     yourSites: 'あなたのサイト',
     thSite: 'サイト',
     thCreated: '作成日',
-    editorLabel: 'エディター',
+    editorLabel: 'エディタ',
     upgradable: '更新可否',
     check: '確認',
     checking: '確認中…',
@@ -272,11 +272,11 @@ const ui = {
     welcomeGetStarted: 'はじめる',
     welcomeH1: '数分で公開できる、無料のブログ。',
     welcomeIntro:
-      'kantan（かんたん）は「シンプル」という意味。メールだけでログインすれば、GitHub のリポジトリもホスティングもエディターも、kantan が用意してくれます。',
+      'kantan（かんたん）は「シンプル」という意味。メールだけでログインすれば、GitHub のリポジトリもホスティングもエディタも、kantan が用意してくれます。',
     welcomeHow: '仕組み',
     welcomeStep1: 'メールだけでログイン — パスワードも GitHub ログインも不要です。',
     welcomeStep2: 'GitHub と Cloudflare を接続 — Cloudflare のトークンを貼り付けるだけで、あとは kantan が全部セットアップします。',
-    welcomeStep3: '書いて公開 — 使いやすいエディターで記事を編集するだけ。保存すればサイトに反映されます。',
+    welcomeStep3: '書いて公開 — 使いやすいエディタで記事を編集するだけ。保存すればサイトに反映されます。',
     welcomeKeys: '鍵はあなたのもの',
     welcomeKeysBody:
       'kantan は GitHub や Cloudflare の認証情報を保存しません。サイトを作る数秒間だけ使い、あなたのリポジトリにデプロイ用シークレットとして書き込んだら、あとは破棄します。いつでも取り消し・変更できます。',
@@ -334,7 +334,7 @@ const ui = {
     yourSiteBuilding: 'サイトを構築しています。',
     repo: 'リポジトリ:',
     site: 'サイト:',
-    editor: 'エディター:',
+    editor: 'エディタ:',
     meanwhileLive: 'その間はこちらでもアクセスできます:',
 
     somethingWentWrong: '問題が発生しました',
@@ -377,7 +377,7 @@ const ui = {
     customDomainLabel: '独自ドメイン（任意）',
     customDomainPlaceholder: 'example.com',
     customDomainHint:
-      'あなた自身のドメイン（例: example.com）。ドメインの DNS 設定で <name>.pages.dev への CNAME レコードを作成してください。エディターもそこで使えます。',
+      'あなた自身のドメイン（例: example.com）。ドメインの DNS 設定で <name>.pages.dev への CNAME レコードを作成してください。エディタもそこで使えます。',
     deleteSite: 'サイトを削除',
     deleteConfirmTitle: 'このサイトを削除しますか？',
     deleteConfirmBody:
