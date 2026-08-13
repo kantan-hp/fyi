@@ -32,7 +32,8 @@ select { font: inherit; font-size: .9rem; padding: .5rem .7rem; border: 1px soli
 .err { color: #b3261e; }
 .ok { color: #157f3d; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; }
-.brand { font-weight: 700; font-size: 1.05rem; text-decoration: none; letter-spacing: -.01em; }
+.brand { display: inline-flex; align-items: center; gap: .45rem; font-weight: 700; font-size: 1.05rem; text-decoration: none; letter-spacing: -.01em; }
+.brand-logo { width: 1.2rem; height: 1.2rem; display: block; flex-shrink: 0; }
 .brand span { color: #9a9a9a; font-weight: 500; }
 .card { background: #fff; border: 1px solid #e8e6e1; border-radius: 14px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
 .card h2 { font-size: 1rem; margin: 0 0 .4rem; display: flex; align-items: center; gap: .6rem; }
@@ -91,7 +92,9 @@ tr.site-detail td { padding: 0; }
 .detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
 .detail-reason .err { display: block; }
 .panel-footer { border-top: 1px solid #e8e6e1; padding: 1rem 1.25rem 1.5rem; flex-shrink: 0; }
-.panel-footer .foot { max-width: 680px; margin: 0 auto; display: flex; justify-content: flex-end; }
+.panel-footer .foot { max-width: 680px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+.gh-link { color: #777; display: inline-flex; align-items: center; transition: color .15s ease; }
+.gh-link:hover { color: #1a1a1a; }
 .lang-switch { position: relative; font-size: .85rem; }
 .lang-toggle {
   display: inline-flex; align-items: center; gap: .4rem;
@@ -113,6 +116,11 @@ tr.site-detail td { padding: 0; }
 .lang-list a:hover { background: #f4f3f0; }
 .lang-list a[aria-current='true'] { font-weight: 600; }`;
 
+// The kantan logo mark (a 32×32 PNG), inlined as a data URI so the panel serves
+// it without any static asset. Used for the <link rel="icon"> and the header
+// brand lockup.
+const LOGO_B64 = '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';
+
 function shell(title, body, extraHead = '', { locale = 'en', pathname = '/' } = {}) {
   return `<!doctype html>
 <html lang="${locale}" data-panel-lang="${locale}">
@@ -120,12 +128,13 @@ function shell(title, body, extraHead = '', { locale = 'en', pathname = '/' } = 
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${title} — kantan</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,${LOGO_B64}" />
 <style>${BASE}</style>
 ${extraHead}
 </head>
 <body>
 ${body}
-<footer class="panel-footer"><div class="foot">${languageSwitcher(locale, pathname)}</div></footer>
+<footer class="panel-footer"><div class="foot"><a class="gh-link" href="https://github.com/kantan-hp" target="_blank" rel="noopener" aria-label="GitHub" title="kantan-hp on GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>${languageSwitcher(locale, pathname)}</div></footer>
 <script>
   // Collapsed language switcher: click the toggle to expand all languages
   // (upward), click a language to navigate (full reload collapses it again),
@@ -182,7 +191,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
     t(locale, 'welcomeTitle'),
     `<main class="wrap">
       <header class="topbar">
-        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
         ${email ? `<a class="muted" style="font-size:.85rem" href="/app">${t(locale, 'navDashboard')}</a>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
@@ -219,7 +228,7 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
     t(locale, 'loginTitle'),
     `<main class="wrap">
       <header class="topbar">
-        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
         <a class="muted" style="font-size:.85rem" href="/">${t(locale, 'navBack')}</a>
       </header>
       <div class="card" style="max-width:420px">
@@ -354,7 +363,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     t(locale, 'dashboardTitle'),
     `<main class="wrap">
       <header class="topbar">
-        <a class="brand" href="/">kantan<span> かんたん</span></a>
+        <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
         <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
       </header>
 
