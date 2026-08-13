@@ -247,13 +247,13 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
         <a class="muted" style="font-size:.85rem" href="/">${t(locale, 'navBack')}</a>
       </header>
-      <div class="card" style="max-width:420px">
+      <div class="card">
         <h2>${t(locale, 'signIn')}</h2>
         <p>${t(locale, 'signInBody')}</p>
         <form id="login">
           <input type="email" id="email" placeholder="${t(locale, 'emailPlaceholder')}" required autofocus />
           ${turnstileWidget(turnstileSitekey)}
-          <button class="btn" type="submit" style="width:100%">${t(locale, 'emailMeLink')}</button>
+          <button class="btn" type="submit">${t(locale, 'emailMeLink')}</button>
         </form>
         <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
       </div>
