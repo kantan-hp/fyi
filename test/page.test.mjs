@@ -65,6 +65,14 @@ test('loginPage inline scripts parse (with and without sitekey)', () => {
   assert.ok(parseInlineScripts(loginPage({})) >= 1);
 });
 
+test('login button flips to "Login link sent" after a successful send', () => {
+  const en = loginPage({});
+  assert.ok(en.includes('btn.textContent = window.I18N.loginLinkSent'), 'button text is swapped on success');
+  assert.ok(en.includes('"loginLinkSent":"Login link sent"'), 'localized string is embedded');
+  const ja = loginPage({}, { locale: 'ja', pathname: '/login' });
+  assert.ok(ja.includes('"loginLinkSent":"ログインリンクを送信しました"'), 'localized for ja');
+});
+
 test('Turnstile widget is hidden unless a challenge is required (interaction-only)', () => {
   const withKey = loginPage({}, { turnstileSitekey: '0x4AAAAAAA-test' });
   assert.ok(withKey.includes('data-appearance="interaction-only"'));
