@@ -1720,6 +1720,18 @@ async function siteDelete(request, env) {
   const ok = (n, detail) => steps.push({ name: n, ok: true, detail });
   const fail = (n, detail) => steps.push({ name: n, ok: false, detail });
 
+  // DELETE via the CF API, treating 404 (already gone) as success so a retried
+  // or previously-partially-deleted resource never blocks a full delete.
+  const deleteCf = async (path) => {
+    try {
+      await cf(cfToken, path, { method: 'DELETE' });
+      return true;
+    } catch (err) {
+      if (String((err && err.message) || '').includes('(404)')) return true;
+      throw err;
+    }
+  };
+
   try {
     // Tear down external resources first and the D1 row LAST, so a partial
     // failure leaves the registry record as the operator-visible marker of what
@@ -1743,7 +1755,7 @@ async function siteDelete(request, env) {
     if (site.origin.endsWith('.kantan-hp.fyi')) attached.push(bare(site.origin));
     for (const domain of attached) {
       try {
-        await cf(cfToken, `/accounts/${accountId}/pages/projects/${name}/domains/${domain}`, { method: 'DELETE' });
+        await deleteCf(`/accounts/${accountId}/pages/projects/${name}/domains/${domain}`);
         ok('domain-detach', domain);
       } catch (err) {
         fail('domain-detach', `${domain}: ${String((err && err.message) || err)}`);
@@ -1752,7 +1764,7 @@ async function siteDelete(request, env) {
     // 3. Pages project (user token).
     let projectDeleted = false;
     try {
-      await cf(cfToken, `/accounts/${accountId}/pages/projects/${name}`, { method: 'DELETE' });
+      await deleteCf(`/accounts/${accountId}/pages/projects/${name}`);
       ok('pages-project', name);
       projectDeleted = true;
     } catch (err) {
