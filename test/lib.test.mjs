@@ -208,6 +208,21 @@ test('parseZip rejects an oversized bundle', () => {
   assert.throws(() => parseZip(big), /too large/);
 });
 
+test('parseZip rejects a zip bomb via the central directory', () => {
+  const enc = new TextEncoder();
+  const zip = buildZip([{ path: 'public/images/big.png', data: enc.encode('aaaa') }]);
+  const bytes = new Uint8Array(zip);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (u32(bytes, i) === 0x06054b50) { eocd = i; break; }
+  }
+  assert.ok(eocd >= 0, 'EOCD found');
+  const cdOffset = u32(bytes, eocd + 16);
+  bytes[cdOffset + 24] = 0xff; bytes[cdOffset + 25] = 0xff; bytes[cdOffset + 26] = 0xff; bytes[cdOffset + 27] = 0x7f;
+  assert.throws(() => parseZip(bytes), /too large when unpacked/);
+});
+
 test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {
   const enc = new TextEncoder();
   const dec = new TextDecoder();
