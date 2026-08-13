@@ -180,7 +180,7 @@ test('transferPathsFromTree keeps only user-data blob paths', () => {
   ]);
 });
 
-test('buildZip/parseZip round-trips binary bytes and drops non-user-data paths', () => {
+test('buildZip/parseZip round-trips binary bytes and drops non-user-data paths', async () => {
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
@@ -189,7 +189,7 @@ test('buildZip/parseZip round-trips binary bytes and drops non-user-data paths',
     { path: 'public/images/pic.png', data: pngBytes },
     { path: 'src/config.json', data: enc.encode('{"site":{"title":"T"}}') },
   ]);
-  const files = parseZip(zip);
+  const files = await parseZip(zip);
   assert.equal(files.length, 3);
   assert.deepEqual([...files.find((f) => f.path === 'public/images/pic.png').data], [...pngBytes]);
   assert.equal(dec.decode(files.find((f) => f.path === 'src/content/blog/hello.md').data), '---\ntitle: hi\n---\nbody');
@@ -199,28 +199,20 @@ test('buildZip/parseZip round-trips binary bytes and drops non-user-data paths',
     { path: 'public/admin/config.yml', data: enc.encode('evil') },
     { path: 'src/content/ok.md', data: enc.encode('ok') },
   ]);
-  const parsed = parseZip(hostile);
+  const parsed = await parseZip(hostile);
   assert.deepEqual(parsed.map((f) => f.path), ['src/content/ok.md']);
 });
 
-test('parseZip rejects an oversized bundle', () => {
+test('parseZip rejects an oversized bundle', async () => {
   const big = new Uint8Array(21 * 1024 * 1024);
-  assert.throws(() => parseZip(big), /too large/);
+  await assert.rejects(() => parseZip(big), /too large/);
 });
 
-test('parseZip rejects a zip bomb via the central directory', () => {
-  const enc = new TextEncoder();
-  const zip = buildZip([{ path: 'public/images/big.png', data: enc.encode('aaaa') }]);
-  const bytes = new Uint8Array(zip);
-  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
-  let eocd = -1;
-  for (let i = bytes.length - 22; i >= 0; i--) {
-    if (u32(bytes, i) === 0x06054b50) { eocd = i; break; }
-  }
-  assert.ok(eocd >= 0, 'EOCD found');
-  const cdOffset = u32(bytes, eocd + 16);
-  bytes[cdOffset + 24] = 0xff; bytes[cdOffset + 25] = 0xff; bytes[cdOffset + 26] = 0xff; bytes[cdOffset + 27] = 0x7f;
-  assert.throws(() => parseZip(bytes), /too large when unpacked/);
+test('parseZip rejects a decompression bomb via the streaming cap', async () => {
+  const big = new Uint8Array(101 * 1024 * 1024); // zeros — highly compressible
+  const zip = buildZip([{ path: 'public/images/big.png', data: big }]);
+  assert.ok(zip.length < 1024 * 1024, 'compresses well');
+  await assert.rejects(() => parseZip(zip), /too large when unpacked/);
 });
 
 test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {

@@ -1121,7 +1121,7 @@ async function provision(request, env) {
             throw new Error('Content bundle is too large.');
           }
           try {
-            files = parseZip(b64decodeBytes(contentBundleRaw));
+            files = await parseZip(b64decodeBytes(contentBundleRaw));
           } catch {
             throw new Error('Could not read the uploaded content bundle.');
           }

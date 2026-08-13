@@ -1,7 +1,7 @@
 // Pure helpers shared by the worker routes. Kept free of worker-only APIs so
 // they can be unit-tested with plain `node --test`.
 
-import { zipSync, unzipSync } from 'fflate';
+import { zipSync, Unzip, UnzipInflate, UnzipPassThrough } from 'fflate';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -446,66 +446,78 @@ export function buildZip(files) {
   return zipSync(entries);
 }
 
-// Little-endian readers for the ZIP central directory.
-function u16le(bytes, off) {
-  return bytes[off] | (bytes[off + 1] << 8);
-}
-function u32le(bytes, off) {
-  return (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0;
-}
-const EOCD_SIG = 0x06054b50;
-const CEN_SIG = 0x02014b50;
-
 /**
- * Sum the ZIP central directory's declared uncompressed sizes WITHOUT
- * decompressing, so a zip bomb (tiny compressed, huge uncompressed) is rejected
- * before `unzipSync` materializes it. Returns null when the structure is
- * unparseable (then parseZip falls through to unzipSync, which will reject it).
+ * Streaming unzip with a hard cap on the total decompressed bytes. `Unzip`
+ * emits each file's data incrementally via `ondata`, so a zip bomb (tiny
+ * compressed, huge uncompressed) is aborted as soon as the running total passes
+ * MAX_UNCOMPRESSED_BYTES — before the whole payload is ever materialized. This
+ * counts the actual output, so neither spoofed central-directory sizes nor
+ * ZIP64 archives can bypass it.
  */
-export function zipUncompressedSize(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.length < 22) return null;
-  const min = Math.max(0, bytes.length - 65557); // EOCD within the last 64KB
-  let eocd = -1;
-  for (let i = bytes.length - 22; i >= min; i--) {
-    if (u32le(bytes, i) === EOCD_SIG) {
-      eocd = i;
-      break;
+function unzipLimited(bytes) {
+  return new Promise((resolve, reject) => {
+    const files = [];
+    let total = 0;
+    let failed = false;
+    const fail = (err) => {
+      if (!failed) {
+        failed = true;
+        reject(err);
+      }
+    };
+    const unzip = new Unzip();
+    unzip.register(UnzipInflate);
+    unzip.register(UnzipPassThrough);
+    unzip.onfile = (file) => {
+      if (failed) return;
+      const chunks = [];
+      let fileSize = 0;
+      file.ondata = (err, data, final) => {
+        if (failed) return;
+        if (err) {
+          fail(new Error('content bundle is unreadable: ' + (err.message || 'decode error')));
+          return;
+        }
+        fileSize += data.length;
+        total += data.length;
+        if (total > MAX_UNCOMPRESSED_BYTES) {
+          fail(new Error('content bundle is too large when unpacked'));
+          return;
+        }
+        chunks.push(data);
+        if (final) {
+          const out = new Uint8Array(fileSize);
+          let off = 0;
+          for (const c of chunks) {
+            out.set(c, off);
+            off += c.length;
+          }
+          files.push({ path: file.name, data: out });
+        }
+      };
+      file.start();
+    };
+    // Push in chunks so a bomb can be aborted between chunks instead of being
+    // fully inflated in a single call.
+    const CHUNK = 16 * 1024;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      if (failed) break;
+      unzip.push(bytes.subarray(i, i + CHUNK), i + CHUNK >= bytes.length);
     }
-  }
-  if (eocd < 0) return null;
-  const count = u16le(bytes, eocd + 10);
-  const cdSize = u32le(bytes, eocd + 12);
-  const cdOffset = u32le(bytes, eocd + 16);
-  if (cdOffset + cdSize > bytes.length) return null;
-  let total = 0;
-  let p = cdOffset;
-  for (let n = 0; n < count; n++) {
-    if (p + 46 > bytes.length || u32le(bytes, p) !== CEN_SIG) return null;
-    total += u32le(bytes, p + 24);
-    p += 46 + u16le(bytes, p + 28) + u16le(bytes, p + 30) + u16le(bytes, p + 32);
-  }
-  return total;
+    if (!failed) resolve(files);
+  });
 }
 
 /**
  * Parse a zip bundle into [{path, data}] (raw bytes), keeping only user-data
  * paths so a malformed or hostile bundle can never smuggle a core/config.yml
- * file into an import. Rejects bundles over the compressed/decompressed size
- * caps and the file-count cap.
+ * file into an import. Rejects bundles over the compressed size, total
+ * decompressed size (streaming cap), and file-count limits.
  */
-export function parseZip(bytes) {
+export async function parseZip(bytes) {
   if (!(bytes instanceof Uint8Array)) throw new Error('content bundle must be bytes');
   if (bytes.length > MAX_BUNDLE_BYTES) throw new Error('content bundle is too large');
-  const uncompressed = zipUncompressedSize(bytes);
-  if (uncompressed != null && uncompressed > MAX_UNCOMPRESSED_BYTES) {
-    throw new Error('content bundle is too large when unpacked');
-  }
-  const entries = unzipSync(bytes);
-  const files = [];
-  for (const [path, data] of Object.entries(entries)) {
-    if (!isUserDataPath(path)) continue;
-    files.push({ path, data });
-  }
+  const files = (await unzipLimited(bytes)).filter((f) => isUserDataPath(f.path));
   if (files.length > MAX_BUNDLE_FILES) throw new Error('content bundle has too many files');
   return files;
 }
