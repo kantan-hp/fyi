@@ -407,8 +407,8 @@ export function buildMagicEmail(locale, link, logoUrl) {
       <table role="presentation" width="520" cellspacing="0" cellpadding="0" style="width:100%;max-width:520px;background:#ffffff;border:1px solid #e8e6e1;border-radius:14px;">
         <tr><td style="padding:24px 28px;">
           <table role="presentation" cellspacing="0" cellpadding="0"><tr>
-            <td style="vertical-align:middle;"><img src="${logoUrl}" width="24" height="24" alt="kantan" style="display:block;border:0;width:24px;height:24px;" /></td>
-            <td style="vertical-align:middle;padding-left:8px;font-weight:700;font-size:17px;letter-spacing:-.01em;">kantan</td>
+            <td style="vertical-align:middle;"><img src="${logoUrl}" width="19" height="19" alt="kantan" style="display:block;border:0;width:19px;height:19px;" /></td>
+            <td style="vertical-align:middle;padding-left:7px;font-weight:700;font-size:17px;letter-spacing:-.01em;">kantan<span style="color:#9a9a9a;font-weight:500;"> かんたん</span></td>
           </tr></table>
           <h1 style="font-size:20px;margin:24px 0 8px;letter-spacing:-.02em;">${title}</h1>
           <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 20px;">${body}</p>

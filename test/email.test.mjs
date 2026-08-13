@@ -22,6 +22,7 @@ test('buildMagicEmail: HTML carries the logo URL, the link, and design tokens', 
   assert.ok(html.includes('background:#1a1a1a'), 'pill CTA uses the panel black');
   assert.ok(html.includes('border-radius:999px'), 'pill button radius');
   assert.ok(html.includes('<html lang="en"'), 'html carries the locale');
+  assert.ok(html.includes('kantan<span style="color:#9a9a9a;font-weight:500;"> かんたん</span>'), 'brand lockup matches the site header');
   assert.ok(text.includes(LINK), 'plain-text fallback includes the link');
   assert.ok(text.includes('expires in 15 minutes'), 'plain-text fallback notes expiry');
 });
