@@ -27,7 +27,6 @@ import {
   signPayload,
   verifyPayload,
   parseCookies,
-  isAllowedSiteOrigin,
   normalizeEmail,
   canonicalizeEmail,
   isValidEmail,
@@ -43,6 +42,7 @@ import {
   isBrandSlug,
   isReservedSlug,
   slugLengthOk,
+  normalizeCustomDomain,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 import { resolveLocale, LANG_COOKIE, DEFAULT_LOCALE, isLocale, t } from './i18n.js';
@@ -126,6 +126,7 @@ export default {
       if (pathname === '/api/sites/check') return siteUpdateCheck(request, env);
       if (pathname === '/api/sites/update') return siteUpdate(request, env);
       if (pathname === '/api/sites/baseline') return siteBaseline(request, env);
+      if (pathname === '/api/sites/delete') return siteDelete(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
       if (pathname === '/api/wizard/logout') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request, env);
@@ -249,6 +250,24 @@ async function getSiteByOrigin(env, origin) {
 /** Legacy pages.dev origin fallback for sites registered under a branded origin. */
 async function getSiteByDeployUrl(env, deployUrl) {
   return env.DB.prepare('SELECT * FROM sites WHERE deploy_url = ?').bind(deployUrl).first();
+}
+
+/** A site whose user-attached custom domain matches the given https origin. */
+async function getSiteByCustomDomain(env, origin) {
+  return env.DB.prepare('SELECT * FROM sites WHERE custom_domain = ?').bind(origin).first();
+}
+
+/**
+ * Resolve a site from an editor origin: the canonical `origin`, its legacy
+ * pages.dev `deploy_url`, or a user-attached `custom_domain`. The single place
+ * the editor handshake trusts an origin — a D1 match, never a suffix guess.
+ */
+async function findSiteByOrigin(env, origin) {
+  return (
+    (await getSiteByOrigin(env, origin)) ||
+    (await getSiteByDeployUrl(env, origin)) ||
+    (await getSiteByCustomDomain(env, origin))
+  );
 }
 
 /**
@@ -590,9 +609,11 @@ function renderDecapHandshake(content) {
       const origin = message.origin;
       try {
         const u = new URL(origin);
-        const allowed =
-          u.protocol === 'https:' &&
-          (u.hostname.endsWith('.pages.dev') || u.hostname.endsWith('.kantan-hp.fyi'));
+        // The opener must be https; the authoritative check is server-side —
+        // /api/decap/lookup matches the origin against the D1 registry
+        // (canonical origin, deploy_url, or a user-attached custom domain) and
+        // refuses anything unregistered before any token is posted.
+        const allowed = u.protocol === 'https:';
         if (!allowed) {
           throw new Error('origin is not a provisioned site');
         }
@@ -860,11 +881,11 @@ async function decapLookup(request, env) {
     return rateLimited('lookup-ip');
   }
   const origin = new URL(request.url).searchParams.get('origin') || '';
-  if (!isAllowedSiteOrigin(origin)) return json({ error: 'origin not allowed' }, 403);
-  // A branded site's canonical origin is the lookup key; its legacy pages.dev
-  // address (deploy_url) is accepted too so editor auth at the old URL keeps
-  // working after the migration.
-  const record = (await getSiteByOrigin(env, origin)) || (await getSiteByDeployUrl(env, origin));
+  if (!/^https:\/\//.test(origin)) return json({ error: 'origin not allowed' }, 403);
+  // The editor origin is matched against the D1 registry (canonical origin,
+  // legacy pages.dev deploy_url, or a user-attached custom domain) — a suffix
+  // guess is no longer the gate.
+  const record = await findSiteByOrigin(env, origin);
   if (!record) return json({ error: 'unknown site' }, 404);
   return json({ repo: record.repo });
 }
@@ -885,8 +906,10 @@ async function provision(request, env) {
     public: sitePublic = false,
     branded: siteBranded = false,
     lang: siteLang = DEFAULT_LOCALE,
+    customDomain: customDomainRaw,
     turnstile,
   } = await request.json().catch(() => ({}));
+  const customDomain = normalizeCustomDomain(customDomainRaw);
   const steps = [];
   const ok = (name, detail) => steps.push({ name, ok: true, detail });
   const fail = (name, detail) => steps.push({ name, ok: false, detail });
@@ -920,6 +943,9 @@ async function provision(request, env) {
     }
     if (created.domainAttach) {
       await job('domain-attach', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
+    }
+    if (created.customDomain) {
+      await job('custom-domain', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${customDomain.replace(/^https:\/\//, '')}`, { method: 'DELETE' }));
     }
     if (created.pagesProject) {
       await job('pages-project', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
@@ -1218,9 +1244,25 @@ async function provision(request, env) {
         }
       }
 
+      // 8c. Custom domain (optional): attach the user's own domain to the Pages
+      //     project via the Pages API, then store it so the editor handshake
+      //     accepts the origin. Activation is async — the user creates a CNAME
+      //     at their registrar pointing at <slug>.pages.dev; we report the
+      //     instruction. The domain object is kept for the D1 insert below.
+      let customDomainResult = null;
+      if (customDomain) {
+        customDomainResult = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains`, {
+          method: 'POST',
+          body: { name: customDomain.replace(/^https:\/\//, '') },
+        });
+        created.customDomain = true;
+        ok('custom-domain', `${customDomain} attached — create a CNAME at your registrar pointing to ${slug}.pages.dev`);
+      }
+
       // 9. Register the site in D1 (drives the site list and the editor origin
       //    check). Branded sites get the branded canonical origin + deploy_url;
       //    pages.dev-only sites keep origin = pages.dev and deploy_url = NULL.
+      //    A user-attached custom domain is recorded for the editor handshake.
       //    The INSERT is a single-statement CONDITIONAL insert — atomic in D1 —
       //    as the hard backstop on the per-GitHub-login site cap (the count was
       //    already checked before any resource was created; this closes the race
@@ -1228,11 +1270,11 @@ async function provision(request, env) {
       const origin = branded ? `https://${slug}.kantan-hp.fyi` : pagesDevUrl;
       const deployUrl = branded ? pagesDevUrl : null;
       const insert = await env.DB.prepare(
-        'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, deploy_url, created_at) ' +
-          'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? ' +
+        'INSERT INTO sites (origin, owner_email, owner_login, repo, project, account_id, template_version, deploy_url, custom_domain, created_at) ' +
+          'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ' +
           'WHERE (SELECT COUNT(*) FROM sites WHERE owner_login = ?) < ?',
       )
-        .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, deployUrl, new Date().toISOString(), login, siteCap)
+        .bind(origin, email, login, `${login}/${slug}`, slug, accountId, templateVersion, deployUrl, customDomain || null, new Date().toISOString(), login, siteCap)
         .run();
       if ((insert.meta && insert.meta.changes) !== 1) {
         // The cap was hit mid-flight (concurrent provision). Nothing to keep:
@@ -1261,6 +1303,7 @@ async function provision(request, env) {
               url: origin,
               admin: `${origin}/admin`,
               pagesDevUrl,
+              customDomain: customDomain || undefined,
               note: 'The first deploy takes a minute or two. Then open /admin and log in with GitHub.',
             },
           },
@@ -1637,5 +1680,128 @@ async function siteBaseline(request, env) {
     return json({ ok: true, templateVersion: current });
   } catch (err) {
     return json({ error: `Could not set the baseline: ${String((err && err.message) || err)}` }, 502);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Site decommissioning — end-to-end delete (repo, Pages project, DNS, registry)
+
+async function siteDelete(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub to delete your site.', connectUrl: '/auth/github' }, 401);
+  if (!(await kvRateLimit(env, 'site-delete', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_update_max', RL.siteUpdate), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-delete', 'Too many delete requests — try again in a few minutes.');
+  }
+
+  const { origin, cfToken, confirm } = await request.json().catch(() => ({}));
+  const site = await getSiteByOrigin(env, origin);
+  if (!site) return json({ error: 'unknown site' }, 404);
+  if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
+
+  // The Pages project can only be removed with a CF token, which kantan never
+  // stores (zero-knowledge) — the user re-supplies the one from provisioning.
+  if (!cfToken) {
+    return json({ error: 'Cloudflare API token required — the Pages project needs it to be deleted.', cfTokenRequired: true }, 400);
+  }
+
+  // The typed confirmation is validated server-side; a destructive action must
+  // not trust the client to have checked it.
+  const host = site.origin.replace(/^https:\/\//, '');
+  if (confirm !== host) {
+    return json({ error: 'Type the site address exactly to confirm deletion.', steps: [] }, 400);
+  }
+
+  const [owner, name] = site.repo.split('/');
+  const accountId = site.account_id;
+  const bare = (o) => String(o || '').replace(/^https:\/\//, '');
+  const steps = [];
+  const ok = (n, detail) => steps.push({ name: n, ok: true, detail });
+  const fail = (n, detail) => steps.push({ name: n, ok: false, detail });
+
+  // DELETE via the CF API, treating 404 (already gone) as success so a retried
+  // or previously-partially-deleted resource never blocks a full delete.
+  const deleteCf = async (path) => {
+    try {
+      await cf(cfToken, path, { method: 'DELETE' });
+      return true;
+    } catch (err) {
+      if (String((err && err.message) || '').includes('(404)')) return true;
+      throw err;
+    }
+  };
+
+  try {
+    // Tear down external resources first and the D1 row LAST, so a partial
+    // failure leaves the registry record as the operator-visible marker of what
+    // still exists to clean up.
+    // 1. Branded DNS (operator token) — best-effort: the serving CNAME.
+    if (site.origin.endsWith('.kantan-hp.fyi')) {
+      try {
+        const slug = host.replace('.kantan-hp.fyi', '');
+        const records = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records?name=${encodeURIComponent(`${slug}.kantan-hp.fyi`)}`);
+        for (const r of records || []) {
+          await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${r.id}`, { method: 'DELETE' });
+        }
+        ok('dns', `${slug}.kantan-hp.fyi records removed`);
+      } catch (err) {
+        fail('dns', String((err && err.message) || err));
+      }
+    }
+    // 2. Detach custom + branded domains from the Pages project (user token).
+    const attached = [];
+    if (site.custom_domain) attached.push(bare(site.custom_domain));
+    if (site.origin.endsWith('.kantan-hp.fyi')) attached.push(bare(site.origin));
+    for (const domain of attached) {
+      try {
+        await deleteCf(`/accounts/${accountId}/pages/projects/${name}/domains/${domain}`);
+        ok('domain-detach', domain);
+      } catch (err) {
+        fail('domain-detach', `${domain}: ${String((err && err.message) || err)}`);
+      }
+    }
+    // 3. Pages project (user token).
+    let projectDeleted = false;
+    try {
+      await deleteCf(`/accounts/${accountId}/pages/projects/${name}`);
+      ok('pages-project', name);
+      projectDeleted = true;
+    } catch (err) {
+      fail('pages-project', String((err && err.message) || err));
+    }
+    // 4. GitHub repo (wizard token). 404 = already gone, still success.
+    let repoDeleted = false;
+    try {
+      const res = await gh(wizard.t, `/repos/${owner}/${name}`, { method: 'DELETE' });
+      if (res.status === 204 || res.status === 404) {
+        ok('repo', `${owner}/${name}`);
+        repoDeleted = true;
+      } else {
+        throw new Error(`GitHub DELETE repo failed (${res.status})`);
+      }
+    } catch (err) {
+      fail('repo', String((err && err.message) || err));
+    }
+    // 5. D1 registry row — last, and only once no external resource remains.
+    //    If the Pages project or repo could not be removed, keep the row as the
+    //    operator-visible marker of what still exists to clean up.
+    if (projectDeleted && repoDeleted) {
+      const del = await env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(site.origin).run();
+      if ((del.meta && del.meta.changes) === 1) ok('registry', site.origin);
+      else fail('registry', 'row not found');
+    } else {
+      fail('registry', 'kept — Pages project or repo still exists; retry after fixing the failed steps');
+    }
+
+    const allOk = steps.every((s) => s.ok);
+    return json({
+      ok: allOk,
+      steps,
+      remaining: steps.filter((s) => !s.ok).map((s) => s.name),
+      ...(allOk ? {} : { error: 'Some resources could not be removed — see the step list.' }),
+    });
+  } catch (err) {
+    return json({ error: `Delete failed: ${String((err && err.message) || err)}`, steps }, 502);
   }
 }
