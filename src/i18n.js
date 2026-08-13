@@ -149,6 +149,9 @@ const ui = {
 
     step3Title: 'Name your site',
     step3Body: 'This becomes your repository name and your free address: <name>.pages.dev',
+    step4Title: 'Bring your previous content',
+    step4Body:
+      'Export your previous site to download a .zip (dashboard → Export content), then upload it below. Or import directly from one of your existing sites.',
     siteNamePlaceholder: 'my-blog',
     makePublic: 'Make this repository public',
     publicHint: '(your site itself is always public)',
@@ -205,10 +208,6 @@ const ui = {
     reasonLegacy: 'This site was created before version tracking existed. Upgrades are not offered for it yet.',
     reasonUnreadable: 'The site repo could not be read (private, deleted, or no access).',
 
-    customDomainLabel: 'Custom domain (optional)',
-    customDomainPlaceholder: 'example.com',
-    customDomainHint:
-      'Your own domain (e.g. example.com). Create a CNAME at your registrar pointing to <name>.pages.dev; the editor will work on it too.',
     deleteSite: 'Delete site',
     deleteConfirmTitle: 'Delete this site?',
     deleteConfirmBody:
@@ -229,7 +228,7 @@ const ui = {
     exportContent: 'Export content',
     exporting: 'Exporting…',
     exportFailed: 'Export failed',
-    bringContent: 'Bring content over (optional)',
+    bringContent: "Bring a previous site's content over",
     bringContentHint: 'Start with your existing posts, images and settings.',
     contentFromSite: 'Import from an existing site',
     contentNone: 'None',
@@ -320,6 +319,9 @@ const ui = {
 
     step3Title: 'サイトに名前を付ける',
     step3Body: 'これがリポジトリ名と無料のアドレスになります: <name>.pages.dev',
+    step4Title: '以前のコンテンツを引き継ぐ',
+    step4Body:
+      '以前のサイトを .zip としてダウンロードして（ダッシュボード → コンテンツをエクスポート）、下からアップロードしてください。既存のサイトから直接引き継ぐこともできます。',
     siteNamePlaceholder: 'my-blog',
     makePublic: 'このリポジトリを公開',
     publicHint: '（サイト自体は常に公開です）',
@@ -374,10 +376,6 @@ const ui = {
     reasonLegacy: 'このサイトはバージョン管理の導入前に作られました。アップグレードはまだ提供されていません。',
     reasonUnreadable: 'サイトのリポジトリを読み込めませんでした（非公開・削除済み・アクセス不可）。',
 
-    customDomainLabel: '独自ドメイン（任意）',
-    customDomainPlaceholder: 'example.com',
-    customDomainHint:
-      'あなた自身のドメイン（例: example.com）。ドメインの DNS 設定で <name>.pages.dev への CNAME レコードを作成してください。エディタもそこで使えます。',
     deleteSite: 'サイトを削除',
     deleteConfirmTitle: 'このサイトを削除しますか？',
     deleteConfirmBody:
@@ -398,7 +396,7 @@ const ui = {
     exportContent: 'コンテンツをエクスポート',
     exporting: 'エクスポート中…',
     exportFailed: 'エクスポートに失敗しました',
-    bringContent: 'コンテンツを引き継ぐ（任意）',
+    bringContent: '以前のサイトのコンテンツを引き継ぐ',
     bringContentHint: '既存の投稿・画像・設定から始められます。',
     contentFromSite: '既存のサイトから引き継ぐ',
     contentNone: 'なし',
@@ -488,6 +486,9 @@ const ui = {
 
     step3Title: '為網站命名',
     step3Body: '這將成為儲存庫名稱與免費網址：<name>.pages.dev',
+    step4Title: '沿用先前內容',
+    step4Body:
+      '將先前網站匯出為 .zip（儀表板 → 匯出內容）後，於下方上傳；也可以直接從既有網站匯入。',
     siteNamePlaceholder: 'my-blog',
     makePublic: '將此儲存庫設為公開',
     publicHint: '（網站本身永遠是公開的）',
@@ -541,10 +542,6 @@ const ui = {
     reasonLegacy: '此網站是在版本追蹤導入前建立的，目前不提供升級。',
     reasonUnreadable: '無法讀取網站儲存庫（私人、已刪除或無權限）。',
 
-    customDomainLabel: '自訂網域（選填）',
-    customDomainPlaceholder: 'example.com',
-    customDomainHint:
-      '你自己的網域（例如 example.com）。請在註冊商處建立指向 <name>.pages.dev 的 CNAME 記錄，編輯器也能在那裡使用。',
     deleteSite: '刪除網站',
     deleteConfirmTitle: '確定要刪除這個網站？',
     deleteConfirmBody: '這會永久刪除 GitHub 存放庫、Cloudflare Pages 專案和這筆註冊，無法復原。',
@@ -564,7 +561,7 @@ const ui = {
     exportContent: '匯出內容',
     exporting: '匯出中…',
     exportFailed: '匯出失敗',
-    bringContent: '沿用原有內容（選填）',
+    bringContent: '沿用先前網站的內容',
     bringContentHint: '從你既有的文章、圖片和設定開始。',
     contentFromSite: '從既有網站匯入',
     contentNone: '無',
@@ -654,6 +651,9 @@ const ui = {
 
     step3Title: '为网站命名',
     step3Body: '这将成为仓库名称与免费网址：<name>.pages.dev',
+    step4Title: '沿用先前内容',
+    step4Body:
+      '将先前网站导出为 .zip（仪表板 → 导出内容）后，在下方上传；也可以直接从现有网站导入。',
     siteNamePlaceholder: 'my-blog',
     makePublic: '将此仓库设为公开',
     publicHint: '（网站本身永远是公开的）',
@@ -707,10 +707,6 @@ const ui = {
     reasonLegacy: '此网站是在版本跟踪引入前创建的，目前不提供升级。',
     reasonUnreadable: '无法读取网站仓库（私有、已删除或无权限）。',
 
-    customDomainLabel: '自定义域名（可选）',
-    customDomainPlaceholder: 'example.com',
-    customDomainHint:
-      '你自己的域名（例如 example.com）。请在注册商处创建指向 <name>.pages.dev 的 CNAME 记录，编辑器也能在那里使用。',
     deleteSite: '删除网站',
     deleteConfirmTitle: '确定要删除这个网站？',
     deleteConfirmBody: '这会永久删除 GitHub 仓库、Cloudflare Pages 项目和这条注册记录，无法撤销。',
@@ -730,7 +726,7 @@ const ui = {
     exportContent: '导出内容',
     exporting: '导出中…',
     exportFailed: '导出失败',
-    bringContent: '沿用原有内容（可选）',
+    bringContent: '沿用先前网站的内容',
     bringContentHint: '从你已有的文章、图片和设置开始。',
     contentFromSite: '从现有网站导入',
     contentNone: '无',

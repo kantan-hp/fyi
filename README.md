@@ -189,8 +189,8 @@ Migration is applied with `npx wrangler d1 migrations apply kantan-panel-db --re
 - Provisioning is one-shot: on failure the worker rolls back what it created
   (repo, Pages project, DNS, domain), but there is no resume — a failure after a
   partial rollback still needs a manual check and retry.
-- A custom domain is attached at provisioning time only; attaching one to an
-  existing site isn't offered yet.
+- Custom domains aren't offered in the wizard — sites go live on a `*.pages.dev`
+  address and an optional `*.kantan-hp.fyi` branded address.
 - Multi-account Cloudflare tokens use the first account.
 - The email session can't be revoked server-side (stateless HMAC cookie); logout
   clears the cookie.

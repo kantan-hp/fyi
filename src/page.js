@@ -43,8 +43,9 @@ select { font: inherit; font-size: .9rem; padding: .5rem .7rem; border: 1px soli
   width: 1.5rem; height: 1.5rem; border-radius: 50%;
   background: #1a1a1a; color: #fff; font-size: .78rem; flex-shrink: 0;
 }
-#step2, #step3 { opacity: .45; pointer-events: none; transition: opacity .2s; }
-#step2.enabled, #step3.enabled { opacity: 1; pointer-events: auto; }
+#step2, #step3, #wizard-submit { opacity: .45; pointer-events: none; transition: opacity .2s; }
+#step2.enabled, #step3.enabled, #wizard-submit.enabled { opacity: 1; pointer-events: auto; }
+.cf-turnstile { margin: .75rem 0; }
 .hidden { display: none; }
 .status { font-size: .85rem; margin-top: .5rem; }
 code { background: #f0efec; padding: .1rem .3rem; border-radius: 4px; font-size: .85em; }
@@ -295,7 +296,9 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
             '<br><span class="muted" style="font-size:.8rem">' + window.I18N.devModeLink + '</span>' +
             '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
         }
-        rerunTurnstile();
+        // The link has been sent and the turnstile token is single-use. Leave
+        // the button disabled and do NOT re-run the widget — re-running would
+        // bounce the captcha straight back to "pending verification".
       });
     </script>`,
     i18nScript(locale) + turnstileScript(turnstileSitekey),
@@ -430,19 +433,28 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             <option value="zh-Hans">简体中文</option>
           </select>
         </label>
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
-          <span style="min-width:5rem">${t(locale, 'customDomainLabel')}</span>
-          <input type="text" id="site-custom-domain" placeholder="${t(locale, 'customDomainPlaceholder')}" autocomplete="off" style="flex:1" />
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 0">
+          <input type="checkbox" id="bring-content" style="margin-top:.3rem" />
+          <span style="display:block">
+            ${t(locale, 'bringContent')}
+            <span class="muted" style="display:block; font-size:.78rem">${t(locale, 'bringContentHint')}</span>
+          </span>
         </label>
-        <p class="muted" style="font-size:.75rem; margin:-.4rem 0 .8rem">${t(locale, 'customDomainHint')}</p>
-        <label style="font-size:.85rem; color:#555; display:block; margin:.1rem 0 .3rem">${t(locale, 'bringContent')}</label>
+      </section>
+
+      <section class="card hidden" id="step4">
+        <h2><span class="num">4</span> ${t(locale, 'step4Title')}</h2>
+        <p>${t(locale, 'step4Body')}</p>
+        <label style="font-size:.85rem; color:#555; display:block; margin:.1rem 0 .3rem">${t(locale, 'contentFromSite')}</label>
         <select id="content-source" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px">
           <option value="">${t(locale, 'contentNone')}</option>
           ${sites.map((s) => `<option value="${s.origin}">${s.origin.replace('https://', '')}</option>`).join('')}
         </select>
-        <label class="muted" style="display:block; font-size:.75rem; margin:.3rem 0">${t(locale, 'contentUploadBundle')}</label>
+        <label class="muted" style="display:block; font-size:.75rem; margin:.6rem 0 .3rem">${t(locale, 'contentUploadBundle')}</label>
         <input type="file" id="content-bundle" accept=".zip" style="width:100%" />
-        <p class="muted" style="font-size:.75rem; margin:.3rem 0 .8rem">${t(locale, 'bringContentHint')}</p>
+      </section>
+
+      <section class="card" id="wizard-submit">
         ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>${t(locale, 'createSite')}</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
@@ -571,6 +583,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           st.textContent = window.I18N.tokenCantList;
         }
         $('step3').classList.add('enabled');
+        $('wizard-submit').classList.add('enabled');
         refreshCreateButton();
       };
 
@@ -586,6 +599,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       };
       $('site-name').oninput = () => { refreshCreateButton(); updateBrandedHint(); };
       $('site-branded').onchange = () => { updateBrandedHint(); };
+
+      // Step 4 is conditional: it only appears when the user opts in to bringing
+      // a previous site's content over (checkbox in step 3).
+      const step4 = $('step4');
+      const bringContent = $('bring-content');
+      if (bringContent && step4) bringContent.onchange = () => {
+        step4.classList.toggle('hidden', !bringContent.checked);
+      };
 
       const pbar = $('pbar'), pfill = $('pbar-fill');
       let barAnim = null;
@@ -630,7 +651,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
               public: $('site-public').checked,
               branded: $('site-branded').checked,
               lang: selLang ? selLang.value : 'en',
-              customDomain: $('site-custom-domain').value,
               contentSource: ($('content-source') || {}).value || '',
               contentBundle,
               turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
@@ -873,6 +893,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         closeModal();
         if (wizard) wizard.classList.remove('hidden');
         if (newSite) newSite.classList.add('active');
+        if (bringContent) bringContent.checked = true;
+        if (step4) step4.classList.remove('hidden');
         const sel = $('content-source');
         if (sel) sel.value = origin;
         window.scrollTo({ top: 0, behavior: 'smooth' });

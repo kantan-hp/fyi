@@ -71,6 +71,24 @@ test('messagePage renders and any inline scripts parse', () => {
   assert.ok(messagePage('Title', 'Body').length > 0);
 });
 
+test('step 3 drops the custom domain field; bring-content is a checkbox that gates step 4', () => {
+  const app = appPage({ email: 'a@b.co', sites: [], hasSites: false }, {});
+  // Custom domain field removed from the wizard.
+  assert.ok(!app.includes('id="site-custom-domain"'));
+  assert.ok(!app.includes('customDomainLabel'), 'custom-domain labels are gone from the page');
+  // "Bring a previous site's content over" is now a checkbox.
+  assert.ok(app.includes('id="bring-content"'));
+  assert.ok(app.includes('type="checkbox" id="bring-content"'));
+  // Step 4 exists but starts hidden; it holds the import + upload controls.
+  assert.ok(app.includes('class="card hidden" id="step4"'));
+  assert.ok(app.includes('id="content-source"') && app.includes('id="content-bundle"'));
+  // Turnstile + create button moved after the steps, out of any step panel.
+  const submit = app.indexOf('id="wizard-submit"');
+  assert.ok(submit !== -1);
+  assert.ok(app.indexOf('id="step4"') < submit);
+  assert.ok(submit < app.indexOf('id="create"'));
+});
+
 test('pages render localized strings + the language switcher footer', () => {
   const ja = welcomePage({}, { locale: 'ja', pathname: '/' });
   assert.ok(ja.includes('<html lang="ja"'));
