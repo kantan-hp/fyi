@@ -156,4 +156,6 @@ test('normalizeCustomDomain rejects invalid or reserved hosts', () => {
   assert.equal(normalizeCustomDomain('-bad-.example.com'), null);
   assert.equal(normalizeCustomDomain('foo.pages.dev'), null);
   assert.equal(normalizeCustomDomain('foo.kantan-hp.fyi'), null);
+  assert.equal(normalizeCustomDomain('pages.dev'), null);
+  assert.equal(normalizeCustomDomain('kantan-hp.fyi'), null);
 });

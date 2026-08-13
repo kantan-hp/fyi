@@ -945,7 +945,7 @@ async function provision(request, env) {
       await job('domain-attach', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${created.domainAttach}`, { method: 'DELETE' }));
     }
     if (created.customDomain) {
-      await job('custom-domain', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${customDomain}`, { method: 'DELETE' }));
+      await job('custom-domain', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${customDomain.replace(/^https:\/\//, '')}`, { method: 'DELETE' }));
     }
     if (created.pagesProject) {
       await job('pages-project', () => cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}`, { method: 'DELETE' }));
@@ -1750,24 +1750,37 @@ async function siteDelete(request, env) {
       }
     }
     // 3. Pages project (user token).
+    let projectDeleted = false;
     try {
       await cf(cfToken, `/accounts/${accountId}/pages/projects/${name}`, { method: 'DELETE' });
       ok('pages-project', name);
+      projectDeleted = true;
     } catch (err) {
       fail('pages-project', String((err && err.message) || err));
     }
     // 4. GitHub repo (wizard token). 404 = already gone, still success.
+    let repoDeleted = false;
     try {
       const res = await gh(wizard.t, `/repos/${owner}/${name}`, { method: 'DELETE' });
-      if (res.status === 204 || res.status === 404) ok('repo', `${owner}/${name}`);
-      else throw new Error(`GitHub DELETE repo failed (${res.status})`);
+      if (res.status === 204 || res.status === 404) {
+        ok('repo', `${owner}/${name}`);
+        repoDeleted = true;
+      } else {
+        throw new Error(`GitHub DELETE repo failed (${res.status})`);
+      }
     } catch (err) {
       fail('repo', String((err && err.message) || err));
     }
-    // 5. D1 registry row (last).
-    const del = await env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(site.origin).run();
-    if ((del.meta && del.meta.changes) === 1) ok('registry', site.origin);
-    else fail('registry', 'row not found');
+    // 5. D1 registry row — last, and only once no external resource remains.
+    //    If the Pages project or repo could not be removed, keep the row as the
+    //    operator-visible marker of what still exists to clean up.
+    if (projectDeleted && repoDeleted) {
+      const del = await env.DB.prepare('DELETE FROM sites WHERE origin = ?').bind(site.origin).run();
+      if ((del.meta && del.meta.changes) === 1) ok('registry', site.origin);
+      else fail('registry', 'row not found');
+    } else {
+      fail('registry', 'kept — Pages project or repo still exists; retry after fixing the failed steps');
+    }
 
     const allOk = steps.every((s) => s.ok);
     return json({

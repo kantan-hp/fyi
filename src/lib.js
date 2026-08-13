@@ -128,7 +128,14 @@ export function normalizeCustomDomain(input) {
   ) {
     return null;
   }
-  if (host.endsWith('.pages.dev') || host.endsWith('.kantan-hp.fyi')) return null;
+  if (
+    host === 'pages.dev' ||
+    host === 'kantan-hp.fyi' ||
+    host.endsWith('.pages.dev') ||
+    host.endsWith('.kantan-hp.fyi')
+  ) {
+    return null;
+  }
   return `https://${host}`;
 }
 

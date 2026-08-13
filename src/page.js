@@ -814,9 +814,9 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           return;
         }
         if (data.ok) {
+          renderCheckButton(origin, null);
           const cell = document.querySelector('[data-reason="' + origin + '"]');
           if (cell) cell.innerHTML = '<span class="ok">' + window.I18N.baselineComplete + '</span>';
-          renderCheckButton(origin, null);
         }
       }
 
