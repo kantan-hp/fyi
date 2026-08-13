@@ -288,7 +288,7 @@ const ui = {
     emailMeLink: 'ログインリンクを送信',
     sending: '送信中…',
     verifFailed: '認証に失敗しました — リロードしてもう一度お試しください。',
-    completeVerification: '先に認証ボックスを完了してください。',
+    completeVerification: '先に認証を完了してください。',
     couldNotSend: 'リンクを送信できませんでした。',
     checkInbox: '✓ 受信トレイを確認してください — リンクは15分で失効します。',
     devModeLink: 'メールプロバイダーが未設定（開発モード）です。リンク:',
@@ -319,7 +319,7 @@ const ui = {
       'トークンは認証できましたが、アカウントを一覧できません。所属する Cloudflare アカウント ID を入力するか、トークンに「Account Settings: Read」を追加してください。',
 
     step3Title: 'サイトに名前を付ける',
-    step3Body: 'これがリポジトリ名と無料アドレスになります: <name>.pages.dev',
+    step3Body: 'これがリポジトリ名と無料のアドレスになります: <name>.pages.dev',
     siteNamePlaceholder: 'my-blog',
     makePublic: 'このリポジトリを公開',
     publicHint: '（サイト自体は常に公開です）',
@@ -328,7 +328,7 @@ const ui = {
     tooShortBranded: '短すぎるため、ブランドアドレスは使わず pages.dev のみになります。',
     createSite: 'サイトを作成',
 
-    provisioningFailed: 'プロビジョニングに失敗しました: ',
+    provisioningFailed: 'サイトの作成に失敗しました: ',
     couldNotReach: 'サーバーに接続できませんでした',
     partialCreate: '。一部だけ作成された可能性があります。GitHub を確認してやり直してください。',
     yourSiteBuilding: 'サイトを構築しています。',
@@ -377,7 +377,7 @@ const ui = {
     customDomainLabel: '独自ドメイン（任意）',
     customDomainPlaceholder: 'example.com',
     customDomainHint:
-      'あなた自身のドメイン（例: example.com）。レジストラで <name>.pages.dev への CNAME レコードを作成してください。エディターもそこで使えます。',
+      'あなた自身のドメイン（例: example.com）。ドメインの DNS 設定で <name>.pages.dev への CNAME レコードを作成してください。エディターもそこで使えます。',
     deleteSite: 'サイトを削除',
     deleteConfirmTitle: 'このサイトを削除しますか？',
     deleteConfirmBody:
