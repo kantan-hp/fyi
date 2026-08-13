@@ -1,7 +1,7 @@
 // Pure helpers shared by the worker routes. Kept free of worker-only APIs so
 // they can be unit-tested with plain `node --test`.
 
-import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
+import { zipSync, unzipSync } from 'fflate';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -36,6 +36,13 @@ export function b64decode(b64) {
 export function b64decodeBytes(b64) {
   const bin = atob(String(b64).replace(/\s/g, ''));
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Raw bytes → base64 (for binary-safe re-encoding). */
+export function b64encodeBytes(u8) {
+  let bin = '';
+  for (const b of u8) bin += String.fromCharCode(b);
+  return btoa(bin);
 }
 
 function b64urlEncode(str) {
@@ -415,7 +422,13 @@ export function upgradeState(status) {
 // ---------------------------------------------------------------------------
 // Content transfer — the user data contract as an export/import bundle. The
 // portable set is exactly the three user-owned paths (isUserDataPath): no core,
-// no config.yml (its backend lines are re-injected by the provisioner).
+// no config.yml (its backend lines are re-injected by the provisioner). Files
+// are carried as raw bytes end-to-end so binary media survives the round-trip.
+
+/** Upper bound on a bundle's compressed size (defends against oversized uploads). */
+export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
+/** Upper bound on the number of files an imported bundle may carry. */
+export const MAX_BUNDLE_FILES = 1000;
 
 /** The blob paths in a repo tree that belong to the user data contract. */
 export function transferPathsFromTree(tree) {
@@ -424,36 +437,39 @@ export function transferPathsFromTree(tree) {
     .map((entry) => entry.path);
 }
 
-/** Build a zip (Uint8Array) from [{path, content}] — the export bundle. */
+/** Build a zip (Uint8Array) from [{path, data}] — the export bundle. */
 export function buildZip(files) {
   const entries = {};
-  for (const f of files || []) entries[f.path] = strToU8(String(f.content ?? ''));
+  for (const f of files || []) entries[f.path] = f.data;
   return zipSync(entries);
 }
 
 /**
- * Parse a zip bundle into [{path, content}], keeping only user-data paths so a
- * malformed or hostile bundle can never smuggle a core/config.yml file into an
- * import.
+ * Parse a zip bundle into [{path, data}] (raw bytes), keeping only user-data
+ * paths so a malformed or hostile bundle can never smuggle a core/config.yml
+ * file into an import. Rejects bundles over MAX_BUNDLE_BYTES / MAX_BUNDLE_FILES.
  */
 export function parseZip(bytes) {
+  if (!(bytes instanceof Uint8Array)) throw new Error('content bundle must be bytes');
+  if (bytes.length > MAX_BUNDLE_BYTES) throw new Error('content bundle is too large');
   const entries = unzipSync(bytes);
   const files = [];
   for (const [path, data] of Object.entries(entries)) {
     if (!isUserDataPath(path)) continue;
-    files.push({ path, content: strFromU8(data) });
+    files.push({ path, data });
   }
+  if (files.length > MAX_BUNDLE_FILES) throw new Error('content bundle has too many files');
   return files;
 }
 
-/** Set `site.lang` on an imported src/config.json, preserving everything else. */
-export function applyLangToConfig(configJson, lang) {
+/** Set `site.lang` on an imported src/config.json (bytes), preserving the rest. */
+export function applyLangToConfig(data, lang) {
   try {
-    const cfg = JSON.parse(configJson);
+    const cfg = JSON.parse(textDecoder.decode(data));
     const settings = Array.isArray(cfg) ? cfg[0] : cfg;
     if (settings && settings.site) settings.site.lang = lang;
-    return JSON.stringify(cfg, null, 2) + '\n';
+    return textEncoder.encode(JSON.stringify(cfg, null, 2) + '\n');
   } catch {
-    return configJson;
+    return data;
   }
 }

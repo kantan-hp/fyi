@@ -832,10 +832,16 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       });
 
       async function exportContent(origin) {
-        const r = await fetch('/api/sites/export', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ origin }),
-        });
+        let r;
+        try {
+          r = await fetch('/api/sites/export', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ origin }),
+          });
+        } catch (err) {
+          errorModal(window.I18N.couldNotReachPanel + ((err && err.message) || err) + '.');
+          return;
+        }
         if (r.status === 401) {
           const d = await r.json().catch(() => ({}));
           if (d.connectUrl) { localStorage.setItem('kantan-check-site', origin); location.href = d.connectUrl; return; }
@@ -851,7 +857,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         document.body.appendChild(a);
         a.click();
         a.remove();
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 0);
       }
 
       function startFreshWithContent(origin) {

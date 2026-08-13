@@ -180,28 +180,39 @@ test('transferPathsFromTree keeps only user-data blob paths', () => {
   ]);
 });
 
-test('buildZip/parseZip round-trips and drops non-user-data paths', () => {
+test('buildZip/parseZip round-trips binary bytes and drops non-user-data paths', () => {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
   const zip = buildZip([
-    { path: 'src/content/blog/hello.md', content: '---\ntitle: hi\n---\nbody' },
-    { path: 'public/images/pic.png', content: '\u0000binary' },
-    { path: 'src/config.json', content: '{"site":{"title":"T"}}' },
+    { path: 'src/content/blog/hello.md', data: enc.encode('---\ntitle: hi\n---\nbody') },
+    { path: 'public/images/pic.png', data: pngBytes },
+    { path: 'src/config.json', data: enc.encode('{"site":{"title":"T"}}') },
   ]);
   const files = parseZip(zip);
   assert.equal(files.length, 3);
-  assert.equal(files.find((f) => f.path === 'src/content/blog/hello.md').content, '---\ntitle: hi\n---\nbody');
+  assert.deepEqual([...files.find((f) => f.path === 'public/images/pic.png').data], [...pngBytes]);
+  assert.equal(dec.decode(files.find((f) => f.path === 'src/content/blog/hello.md').data), '---\ntitle: hi\n---\nbody');
 
   const hostile = buildZip([
-    { path: 'src/layouts/BaseLayout.astro', content: 'evil' },
-    { path: 'public/admin/config.yml', content: 'evil' },
-    { path: 'src/content/ok.md', content: 'ok' },
+    { path: 'src/layouts/BaseLayout.astro', data: enc.encode('evil') },
+    { path: 'public/admin/config.yml', data: enc.encode('evil') },
+    { path: 'src/content/ok.md', data: enc.encode('ok') },
   ]);
   const parsed = parseZip(hostile);
   assert.deepEqual(parsed.map((f) => f.path), ['src/content/ok.md']);
 });
 
-test('applyLangToConfig sets site.lang and preserves the rest', () => {
-  const cfg = JSON.stringify({ site: { title: 'My Blog', lang: 'en' }, theme: { preset: 'paper' } });
-  const out = JSON.parse(applyLangToConfig(cfg, 'ja'));
+test('parseZip rejects an oversized bundle', () => {
+  const big = new Uint8Array(21 * 1024 * 1024);
+  assert.throws(() => parseZip(big), /too large/);
+});
+
+test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const data = enc.encode(JSON.stringify({ site: { title: 'My Blog', lang: 'en' }, theme: { preset: 'paper' } }));
+  const out = JSON.parse(dec.decode(applyLangToConfig(data, 'ja')));
   assert.equal(out.site.lang, 'ja');
   assert.equal(out.site.title, 'My Blog');
   assert.equal(out.theme.preset, 'paper');

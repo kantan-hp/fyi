@@ -48,6 +48,8 @@ import {
   parseZip,
   applyLangToConfig,
   b64decodeBytes,
+  b64encodeBytes,
+  MAX_BUNDLE_BYTES,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 import { resolveLocale, LANG_COOKIE, DEFAULT_LOCALE, isLocale, t } from './i18n.js';
@@ -1115,6 +1117,9 @@ async function provision(request, env) {
           files = await readUserDataFiles(ghT, srcInfo.owner, srcInfo.name, srcInfo.headSha);
           ok('content-source', `${sourceSite.repo} → ${slug}`);
         } else {
+          if (contentBundleRaw.length > MAX_BUNDLE_BYTES * 1.4) {
+            throw new Error('Content bundle is too large.');
+          }
           try {
             files = parseZip(b64decodeBytes(contentBundleRaw));
           } catch {
@@ -1123,11 +1128,11 @@ async function provision(request, env) {
           ok('content-bundle', `${files.length} file(s) from the bundle`);
         }
         files = files.map((f) =>
-          f.path === 'src/config.json' ? { path: f.path, content: applyLangToConfig(f.content, lang) } : f,
+          f.path === 'src/config.json' ? { path: f.path, data: applyLangToConfig(f.data, lang) } : f,
         );
         if (files.length) {
           await overlayUserData(ghT, login, slug, files);
-          contentImported = true;
+          contentImported = files.some((f) => f.path === 'src/config.json');
         }
       }
 
@@ -1432,23 +1437,23 @@ async function siteRepoInfo(token, repo) {
 
 /**
  * Read the user data contract (src/content/**, public/images/**, src/config.json)
- * out of a repo at a commit, as [{path, content}]. The source for export and for
- * kantan→kantan import.
+ * out of a repo at a commit, as [{path, data}] (raw bytes). The source for export
+ * and for kantan→kantan import.
  */
 async function readUserDataFiles(token, owner, name, headSha) {
   const tree = await repoTree(token, owner, name, headSha);
   const files = [];
   for (const path of transferPathsFromTree(tree)) {
     const b64 = await fileContentBase64(token, owner, name, path, headSha);
-    if (b64) files.push({ path, content: b64decode(b64) });
+    if (b64) files.push({ path, data: b64decodeBytes(b64) });
   }
   return files;
 }
 
 /**
- * Write [{path, content}] onto a repo's default branch in a single tree commit
- * (base_tree = current head, so existing files are preserved). Reused by the
- * update engine and content import.
+ * Write [{path, data}] (raw bytes) onto a repo's default branch in a single tree
+ * commit (base_tree = current head, so existing files are preserved). Reused by
+ * the update engine and content import.
  */
 async function overlayUserData(token, owner, name, files) {
   const info = await siteRepoInfo(token, `${owner}/${name}`);
@@ -1457,7 +1462,7 @@ async function overlayUserData(token, owner, name, files) {
   for (const f of files) {
     const blob = await ghJson(token, `/repos/${owner}/${name}/git/blobs`, {
       method: 'POST',
-      body: { content: b64encode(f.content), encoding: 'base64' },
+      body: { content: b64encodeBytes(f.data), encoding: 'base64' },
     });
     treeEntries.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha });
   }
