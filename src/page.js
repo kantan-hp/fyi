@@ -306,6 +306,7 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
           return;
         }
         status.innerHTML = '<span class="ok">' + window.I18N.checkInbox + '</span>';
+        btn.textContent = window.I18N.loginLinkSent;
         if (data.devLink) {
           status.insertAdjacentHTML('beforeend',
             '<br><span class="muted" style="font-size:.8rem">' + window.I18N.devModeLink + '</span>' +
