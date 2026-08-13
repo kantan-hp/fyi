@@ -446,9 +446,9 @@ const ui = {
     welcomeStep1: '用電子郵件登入 — 不需要密碼，也不用登入 GitHub。',
     welcomeStep2: '連接 GitHub 和 Cloudflare — 貼上一次 Cloudflare 權杖，其餘交給 kantan。',
     welcomeStep3: '撰寫並發布 — 在友善的編輯器裡寫文章，每次儲存都會更新網站。',
-    welcomeKeys: '金鑰由你保管',
+    welcomeKeys: '憑證只屬於你',
     welcomeKeysBody:
-      'kantan 不會儲存你的 GitHub 或 Cloudflare 憑證。它們只會在建立網站的幾秒內使用，寫入你自己的儲存庫作為部署密鑰，然後隨即捨棄。你隨時可以撤銷或輪換。',
+      'kantan 不會儲存你的 GitHub 或 Cloudflare 憑證。它們只會在建立網站的幾秒內使用，寫入你自己的儲存庫作為部署密碼，然後隨即捨棄。你隨時可以撤銷或輪換。',
 
     loginTitle: '登入 — kantan',
     signIn: '登入',
@@ -612,9 +612,9 @@ const ui = {
     welcomeStep1: '用电子邮件登录 — 不需要密码，也不用登录 GitHub。',
     welcomeStep2: '连接 GitHub 和 Cloudflare — 粘贴一次 Cloudflare 令牌，其余交给 kantan。',
     welcomeStep3: '撰写并发布 — 在友好的编辑器里写文章，每次保存都会更新网站。',
-    welcomeKeys: '密钥由你保管',
+    welcomeKeys: '凭据只属于你',
     welcomeKeysBody:
-      'kantan 不会存储你的 GitHub 或 Cloudflare 凭据。它们只会在创建网站的几秒内使用，写入你自己的仓库作为部署密钥，然后随即丢弃。你随时可以撤销或轮换。',
+      'kantan 不会存储你的 GitHub 或 Cloudflare 凭据。它们只会在创建网站的几秒内使用，写入你自己的仓库作为部署机密，然后随即丢弃。你随时可以撤销或轮换。',
 
     loginTitle: '登录 — kantan',
     signIn: '登录',
