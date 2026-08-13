@@ -483,7 +483,10 @@ async function oauthStart(request, env, flow) {
   // host (Cloudflare serves http://kantan-hp.fyi without upgrading, and any
   // workers.dev/preview origin is not registered).
   redirectUrl.searchParams.set('redirect_uri', panelBase(env, request) + '/oauth/callback');
-  redirectUrl.searchParams.set('scope', 'repo');
+  // `repo` covers creating/editing the generated site repo; `delete_repo` is a
+  // separate GitHub scope required to delete a repo — needed by the provision
+  // rollback (clean up a half-created repo) and by site decommissioning.
+  redirectUrl.searchParams.set('scope', 'repo delete_repo');
   redirectUrl.searchParams.set('state', state);
   return new Response(null, {
     status: 302,
