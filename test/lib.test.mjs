@@ -130,6 +130,9 @@ test('isValidEmail', () => {
   assert.equal(isValidEmail('nope'), false);
   assert.equal(isValidEmail('a@b'), false);
   assert.equal(isValidEmail(''), false);
+  assert.equal(isValidEmail('x"><img src=x onerror=alert(1)>@evil.tld'), false);
+  assert.equal(isValidEmail("o'connor@example.com"), false);
+  assert.equal(isValidEmail('has space@example.com'), false);
 });
 
 test('randomHex produces hex of the requested length', () => {

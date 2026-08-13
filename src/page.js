@@ -7,9 +7,13 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   margin: 0; background: #faf9f7; color: #1a1a1a; line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  /* Sticky footer: the panel pins its footer to the viewport bottom on short
+     pages and keeps it at the content bottom on long ones, so the language
+     switcher sits at the same height on every page. */
+  display: flex; flex-direction: column; min-height: 100vh;
 }
 a { color: #1a1a1a; }
-.wrap { max-width: 680px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.wrap { max-width: 680px; margin: 0 auto; padding: 2rem 1.25rem 4rem; flex: 1 0 auto; width: 100%; }
 .btn {
   display: inline-block; font: inherit; font-size: .95rem; font-weight: 600;
   padding: .65rem 1.3rem; border-radius: 999px; border: 1px solid #1a1a1a;
@@ -86,7 +90,7 @@ tr.site-detail td { padding: 0; }
 .upg .badge { margin-left: 0; }
 .detail-reason { font-size: .8rem; color: #555; padding: .3rem 0 0 8.3rem; }
 .detail-reason .err { display: block; }
-.panel-footer { border-top: 1px solid #e8e6e1; padding: 1rem 1.25rem 1.5rem; }
+.panel-footer { border-top: 1px solid #e8e6e1; padding: 1rem 1.25rem 1.5rem; flex-shrink: 0; }
 .panel-footer .foot { max-width: 680px; margin: 0 auto; display: flex; justify-content: flex-end; }
 .lang-switch { position: relative; font-size: .85rem; }
 .lang-toggle {
@@ -300,7 +304,7 @@ function esc(s) {
 
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
-    title,
+    esc(title),
     `<main class="wrap"><div class="card">
       <h2>${esc(title)}</h2>
       <p>${esc(text)}</p>
@@ -350,7 +354,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/">kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${email} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
+        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}

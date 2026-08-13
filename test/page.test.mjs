@@ -19,8 +19,26 @@ function parseInlineScripts(page) {
   return blocks.length;
 }
 
+test('messagePage escapes HTML in title/text and email is escaped in appPage', () => {
+  const evil = '<script>alert(1)</script>';
+  const p = messagePage(evil, evil);
+  assert.ok(!p.includes('<script>alert(1)</script>'), 'raw payload must not appear');
+  assert.ok(p.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  const app = appPage({ email: 'x" onmouseover="evil"@evil.tld', sites: [], hasSites: false }, {});
+  assert.ok(!app.includes('onmouseover="evil"'), 'email must not inject an attribute');
+  assert.ok(app.includes('&quot;'));
+});
+
 test('welcomePage renders and any inline scripts parse', () => {
   assert.ok(welcomePage({ email: 'a@b.co' }).length > 0);
+});
+
+test('footer is pinned to the bottom on every page (sticky footer)', () => {
+  const p = welcomePage({ email: 'a@b.co' });
+  assert.ok(p.includes('min-height: 100vh'), 'body pins to viewport height');
+  assert.ok(p.includes('flex: 1 0 auto'), '.wrap grows to push the footer down');
+  assert.ok(p.includes('flex-shrink: 0'), 'footer does not shrink');
+  assert.ok(/<body>[\s\S]*?<footer class="panel-footer">/.test(p), 'footer is a direct body child');
 });
 
 test('loginPage inline scripts parse (with and without sitekey)', () => {
