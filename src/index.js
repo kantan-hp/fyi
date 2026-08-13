@@ -1076,14 +1076,18 @@ async function provision(request, env) {
       await putSecret('CF_PAGES_PROJECT', slug);
       ok('deploy-secrets-written', 'CF_API_TOKEN, CF_ACCOUNT_ID, CF_PAGES_PROJECT');
 
-      // 7. Branded: set the canonical-site-URL repo variable BEFORE the
-      //    deploy-triggering commit. GitHub Actions resolves repo variables when
-      //    a run starts, so setting PUBLIC_SITE_URL after the commit below would
-      //    ship a placeholder RSS/sitemap canonical on the first deploy.
-      if (branded) {
+      // 7. Set the canonical-site-URL repo variable BEFORE the deploy-triggering
+      //    commit. GitHub Actions resolves repo variables when a run starts, so
+      //    setting PUBLIC_SITE_URL after the commit below would ship a
+      //    placeholder RSS/sitemap canonical on the first deploy. Branded sites
+      //    get their branded origin; pages.dev-only sites get their pages.dev
+      //    origin (the SEO plan's searchability default) — every provisioned
+      //    site builds with a real canonical from its first deploy.
+      {
+        const siteUrl = branded ? `https://${slug}.kantan-hp.fyi` : pagesDevUrl;
         await ghJson(ghT, `/repos/${login}/${slug}/actions/variables`, {
           method: 'POST',
-          body: { name: 'PUBLIC_SITE_URL', value: `https://${slug}.kantan-hp.fyi` },
+          body: { name: 'PUBLIC_SITE_URL', value: siteUrl },
         });
       }
 
