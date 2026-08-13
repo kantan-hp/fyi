@@ -111,6 +111,27 @@ export function canonicalOrigin(slug) {
   return `https://${slug}${BRANDED_SUFFIX}`;
 }
 
+/**
+ * Validate + normalize a user-supplied custom domain into an https origin, or
+ * null. Strips an optional scheme/trailing slash, then requires a plausible
+ * hostname (labels of [a-z0-9-], a TLD). Kantan's own namespaces are rejected —
+ * a "custom" domain must be the user's own.
+ */
+export function normalizeCustomDomain(input) {
+  const host = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  if (
+    !/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
+  ) {
+    return null;
+  }
+  if (host.endsWith('.pages.dev') || host.endsWith('.kantan-hp.fyi')) return null;
+  return `https://${host}`;
+}
+
 /** Panel paths and trademark-ish words that only collide on the branded namespace. */
 const RESERVED_SLUGS = new Set([
   'app', 'api', 'oauth', 'admin', 'mail', 'www', 'support', 'login', 'account',

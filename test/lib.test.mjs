@@ -15,6 +15,7 @@ import {
   normalizeEmail,
   canonicalizeEmail,
   isValidEmail,
+  normalizeCustomDomain,
   randomHex,
 } from '../src/lib.js';
 
@@ -141,4 +142,18 @@ test('randomHex produces hex of the requested length', () => {
   assert.equal(a.length, 32);
   assert.match(a, /^[0-9a-f]+$/);
   assert.notEqual(a, b);
+});
+
+test('normalizeCustomDomain accepts a plain host and strips a scheme', () => {
+  assert.equal(normalizeCustomDomain('example.com'), 'https://example.com');
+  assert.equal(normalizeCustomDomain('https://example.com'), 'https://example.com');
+  assert.equal(normalizeCustomDomain('  Blog.Example.COM/  '), 'https://blog.example.com');
+});
+
+test('normalizeCustomDomain rejects invalid or reserved hosts', () => {
+  assert.equal(normalizeCustomDomain(''), null);
+  assert.equal(normalizeCustomDomain('no tld'), null);
+  assert.equal(normalizeCustomDomain('-bad-.example.com'), null);
+  assert.equal(normalizeCustomDomain('foo.pages.dev'), null);
+  assert.equal(normalizeCustomDomain('foo.kantan-hp.fyi'), null);
 });

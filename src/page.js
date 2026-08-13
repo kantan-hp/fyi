@@ -338,6 +338,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
                         <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
                         <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
+                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}">${t(locale, 'deleteSite')}</button></div>
                       </div>
                     </td>
                   </tr>`,
@@ -420,6 +421,11 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             <option value="zh-Hans">简体中文</option>
           </select>
         </label>
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+          <span style="min-width:5rem">${t(locale, 'customDomainLabel')}</span>
+          <input type="text" id="site-custom-domain" placeholder="${t(locale, 'customDomainPlaceholder')}" autocomplete="off" style="flex:1" />
+        </label>
+        <p class="muted" style="font-size:.75rem; margin:-.4rem 0 .8rem">${t(locale, 'customDomainHint')}</p>
         ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>${t(locale, 'createSite')}</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
@@ -593,6 +599,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
               public: $('site-public').checked,
               branded: $('site-branded').checked,
               lang: selLang ? selLang.value : 'en',
+              customDomain: $('site-custom-domain').value,
               turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
           });
@@ -716,6 +723,9 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           upgCell.innerHTML = upgHtml(data);
           const reason = REASON_TEXT[data.reason];
           reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
+          if (data.reason === 'legacy') {
+            reasonCell.insertAdjacentHTML('beforeend', ' <button class="btn" data-baseline="' + esc(origin) + '" style="padding:.3rem .7rem; font-size:.8rem">' + window.I18N.setBaseline + '</button>');
+          }
           if (data.upgradeable === 'yes') {
             upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">' + window.I18N.update + '</button>');
             upgCell.querySelector('[data-upgrade]').onclick = () => openUpdateModal(origin);
@@ -788,8 +798,63 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
 
       document.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-check]');
-        if (btn) { e.stopPropagation(); runCheck(btn.dataset.check); }
+        if (btn) { e.stopPropagation(); runCheck(btn.dataset.check); return; }
+        const baseline = e.target.closest('[data-baseline]');
+        if (baseline) { e.stopPropagation(); runBaseline(baseline.dataset.baseline); return; }
+        const del = e.target.closest('[data-delete]');
+        if (del) { e.stopPropagation(); openDeleteModal(del.dataset.delete); }
       });
+
+      async function runBaseline(origin) {
+        const data = await apiPost('/api/sites/baseline', { origin });
+        if (!data) return;
+        if (data.connectUrl) {
+          localStorage.setItem('kantan-check-site', origin);
+          location.href = data.connectUrl;
+          return;
+        }
+        if (data.ok) {
+          const cell = document.querySelector('[data-reason="' + origin + '"]');
+          if (cell) cell.innerHTML = '<span class="ok">' + window.I18N.baselineComplete + '</span>';
+          renderCheckButton(origin, null);
+        }
+      }
+
+      function openDeleteModal(origin) {
+        const host = origin.replace('https://', '');
+        openModal(
+          window.I18N.deleteConfirmTitle,
+          '<p class="err">' + esc(window.I18N.deleteConfirmBody) + '</p>' +
+          '<label style="font-size:.85rem; display:block; margin:.25rem 0">' + window.I18N.deleteCfToken + '</label>' +
+          '<input type="password" id="del-cf-token" placeholder="' + window.I18N.cfTokenPlaceholder + '" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />' +
+          '<label style="font-size:.85rem; display:block; margin:.5rem 0 .25rem">' + window.I18N.deleteTypeHost + ' <code>' + esc(host) + '</code></label>' +
+          '<input type="text" id="del-confirm" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />',
+          '<button class="btn" id="del-go">' + window.I18N.deleteConfirm + '</button>' +
+          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.deleteCancel + '</button>',
+        );
+        $('del-go').onclick = () => doDelete(origin);
+      }
+
+      async function doDelete(origin) {
+        const cfToken = ($('del-cf-token') || {}).value || '';
+        const confirm = ($('del-confirm') || {}).value || '';
+        openModal(window.I18N.deleting, '<p class="muted">' + window.I18N.deleting + '</p>', '');
+        const data = await apiPost('/api/sites/delete', { origin, cfToken, confirm });
+        if (!data) return;
+        if (data.connectUrl) {
+          localStorage.setItem('kantan-check-site', origin);
+          location.href = data.connectUrl;
+          return;
+        }
+        if (data.ok) {
+          openModal(window.I18N.deleteComplete, '<p>' + window.I18N.deleteComplete + '</p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + window.I18N.done + '</button>');
+        } else {
+          const remaining = data.remaining && data.remaining.length
+            ? '<p class="err">' + window.I18N.deleteRemaining + '</p><ul>' + data.remaining.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>'
+            : '';
+          openModal(window.I18N.deleteFailed, '<p class="err">' + esc(data.error || window.I18N.deleteFailed) + '</p>' + remaining, '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+        }
+      }
 
       async function openUpdateModal(origin) {
         openModal(window.I18N.checking, '<p class="muted">' + window.I18N.comparing + '</p>', '');
