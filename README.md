@@ -1,4 +1,8 @@
-# kantan panel (MVP)
+# kantan panel
+
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
+[![Storage: D1 + KV](https://img.shields.io/badge/storage-D1%20%2B%20KV-f6821f?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
+[![Editor: Sveltia CMS](https://img.shields.io/badge/editor-Sveltia%20CMS-4a90d9)](https://sveltiacms.app)
 
 The kantan control plane — a single Cloudflare Worker behind `kantan-hp.fyi` that
 turns [kantan-hp](https://github.com/kantan-hp/template) setup into:
@@ -12,19 +16,21 @@ turns [kantan-hp](https://github.com/kantan-hp/template) setup into:
    editor) once you do.
 4. **One-click provisioning** — connect GitHub, paste a Cloudflare token, pick a
    name. The worker generates a repo from the template, creates a direct-upload
-   Pages project, writes deploy secrets into *your own* repo, and points Decap at
-   the panel's **shared auth proxy**.
+   Pages project, writes deploy secrets into *your own* repo, and points the site
+   editor (Sveltia CMS) at the panel's **shared auth proxy**.
+5. **Site lifecycle** — versioned, fitness-gated updates, one-click teardown, and
+   content export/import, so a site can be updated, backed up, or moved.
 
 ## Why this works
 
 - One GitHub OAuth App belongs to the *panel*, created once by the operator. Every
-  user's site points Decap's `base_url` at the panel; the token handshake crosses
+  user's site points the editor's `base_url` at the panel; the token handshake crosses
   origins via `postMessage` (the documented
   [external OAuth client](https://decapcms.org/docs/external-oauth-clients/) pattern).
 - Sites deploy via **Direct Upload**: the template ships a `deploy.yml` GitHub
   Actions workflow that builds Astro and runs `wrangler pages deploy`. No
   GitHub↔Cloudflare account connection is ever needed, and every content edit in
-  Decap (a commit) rebuilds automatically.
+  the editor (a commit) rebuilds automatically.
 - GitHub's API is CORS-enabled, but Cloudflare's is not — that's why this worker
   exists instead of a pure client-side page.
 
@@ -47,8 +53,9 @@ panel at effectively $0 and on one Cloudflare bill.
   `CF_PAGES_PROJECT`), then discarded. The panel stores nothing.
 - **Magic-link codes** are single-use, 15-minute TTL, rate-limited (3 per email
   per 15 min).
-- The Decap handshake posts tokens only to origins that are (a) `https://*.pages.dev`,
-  (b) registered in D1, and (c) backed by a repo the token has push access to.
+- The editor handshake posts tokens only to origins that are (a) https — `*.pages.dev`,
+  `*.kantan-hp.fyi`, or a registered custom domain, (b) registered in D1, and (c)
+  backed by a repo the token has push access to.
 
 ## Operator setup (one time, ~10 minutes)
 
@@ -121,7 +128,7 @@ Three layers protect the panel (`2026-08-04-kantan-panel-rate-limiting.md`):
 | `rl.provision_ip_max` / `rl.provision_ip_window` | `5` / `3600` | provisions per IP (advisory) |
 | `rl.provision_session_max` / `rl.provision_session_window` | `2` / `3600` | provisions per GitHub login / hour |
 | `rl.site_cap` | `5` | hard cap: sites per GitHub login |
-| `rl.lookup_ip_max` / `rl.lookup_ip_window` | `120` / `600` | decap lookup per IP (advisory) |
+| `rl.lookup_ip_max` / `rl.lookup_ip_window` | `120` / `600` | editor lookup per IP (advisory) |
 | `rl.oauth_ip_max` / `rl.oauth_ip_window` | `30` / `600` | OAuth start + callback per IP |
 | `rl.login_callback_ip_max` / `rl.login_callback_ip_window` | `30` / `600` | /login/callback per IP |
 | `rl.site_window` | `600` | window (s) for the site check/update/baseline caps |
@@ -177,12 +184,13 @@ check a site's state.
 
 Migration is applied with `npx wrangler d1 migrations apply kantan-panel-db --remote`.
 
-## Known POC limitations
+## Known limitations
 
-- Provisioning is one-shot; if it fails midway (e.g. name taken), clean up the
-  half-created repo/project and retry. No resume yet.
+- Provisioning is one-shot: on failure the worker rolls back what it created
+  (repo, Pages project, DNS, domain), but there is no resume — a failure after a
+  partial rollback still needs a manual check and retry.
+- A custom domain is attached at provisioning time only; attaching one to an
+  existing site isn't offered yet.
 - Multi-account Cloudflare tokens use the first account.
-- Custom domains are not wired up (the Decap origin allowlist only accepts
-  `*.pages.dev`).
 - The email session can't be revoked server-side (stateless HMAC cookie); logout
   clears the cookie.
