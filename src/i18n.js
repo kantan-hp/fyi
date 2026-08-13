@@ -97,7 +97,7 @@ const ui = {
     languageLabel: 'Language',
 
     welcomeTitle: 'kantan — publish a blog in minutes',
-    welcomeOpen: 'Open your dashboard',
+    welcomeOpen: 'Go to my dashboard',
     welcomeGetStarted: 'Get started',
     welcomeH1: 'A free blog that goes live in minutes.',
     welcomeIntro:
@@ -152,6 +152,7 @@ const ui = {
     step4Title: 'Bring your previous content',
     step4Body:
       'Export your previous site to download a .zip (dashboard → Export content), then upload it below. Or import directly from one of your existing sites.',
+    stepConfirmTitle: 'Confirm creation',
     siteNamePlaceholder: 'my-blog',
     makePublic: 'Make this repository public',
     publicHint: '(your site itself is always public)',
@@ -267,7 +268,7 @@ const ui = {
     languageLabel: '言語',
 
     welcomeTitle: 'かんたん — 数分でブログを公開',
-    welcomeOpen: 'ダッシュボードを開く',
+    welcomeOpen: 'マイダッシュボードへ',
     welcomeGetStarted: 'はじめる',
     welcomeH1: '数分で公開できる、無料のブログ。',
     welcomeIntro:
@@ -322,6 +323,7 @@ const ui = {
     step4Title: '以前のコンテンツを引き継ぐ',
     step4Body:
       '以前のサイトを .zip としてダウンロードして（ダッシュボード → コンテンツをエクスポート）、下からアップロードしてください。既存のサイトから直接引き継ぐこともできます。',
+    stepConfirmTitle: '作成を確認',
     siteNamePlaceholder: 'my-blog',
     makePublic: 'このリポジトリを公開',
     publicHint: '（サイト自体は常に公開です）',
@@ -435,7 +437,7 @@ const ui = {
     languageLabel: '語言',
 
     welcomeTitle: 'kantan — 幾分鐘就能上線的部落格',
-    welcomeOpen: '開啟儀表板',
+    welcomeOpen: '前往我的儀表板',
     welcomeGetStarted: '開始使用',
     welcomeH1: '免費部落格，幾分鐘就能上線。',
     welcomeIntro:
@@ -489,6 +491,7 @@ const ui = {
     step4Title: '沿用先前內容',
     step4Body:
       '將先前網站匯出為 .zip（儀表板 → 匯出內容）後，於下方上傳；也可以直接從既有網站匯入。',
+    stepConfirmTitle: '確認建立',
     siteNamePlaceholder: 'my-blog',
     makePublic: '將此儲存庫設為公開',
     publicHint: '（網站本身永遠是公開的）',
@@ -600,7 +603,7 @@ const ui = {
     languageLabel: '语言',
 
     welcomeTitle: 'kantan — 几分钟就能上线的博客',
-    welcomeOpen: '打开仪表板',
+    welcomeOpen: '前往我的仪表板',
     welcomeGetStarted: '开始使用',
     welcomeH1: '免费博客，几分钟就能上线。',
     welcomeIntro:
@@ -654,6 +657,7 @@ const ui = {
     step4Title: '沿用先前内容',
     step4Body:
       '将先前网站导出为 .zip（仪表板 → 导出内容）后，在下方上传；也可以直接从现有网站导入。',
+    stepConfirmTitle: '确认创建',
     siteNamePlaceholder: 'my-blog',
     makePublic: '将此仓库设为公开',
     publicHint: '（网站本身永远是公开的）',
