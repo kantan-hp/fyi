@@ -89,6 +89,19 @@ test('step 3 drops the custom domain field; bring-content is a checkbox that gat
   assert.ok(submit < app.indexOf('id="create"'));
 });
 
+test('card spacing is driven by a shared scaffold, not ad-hoc margins', () => {
+  const app = appPage({ email: 'a@b.co', sites: [], hasSites: false }, {});
+  const login = loginPage({}, { turnstileSitekey: '0x4AAAAAAA-test' });
+  for (const p of [app, login, welcomePage({ email: 'a@b.co' })]) {
+    assert.ok(p.includes('.card > * + *'), 'card rhythm rule present');
+    assert.ok(p.includes('form > * + *'), 'form rhythm rule present');
+  }
+  // Ad-hoc per-element margins are gone from the card surfaces.
+  assert.ok(!app.includes('margin:.1rem 0 .8rem'), 'step 3 labels lean on the scaffold');
+  assert.ok(!app.includes('margin:-.4rem'), 'no negative-margin hacks left');
+  assert.ok(!login.includes('style="margin-top:.75rem'), 'login button no longer hardcodes its spacing');
+});
+
 test('pages render localized strings + the language switcher footer', () => {
   const ja = welcomePage({}, { locale: 'ja', pathname: '/' });
   assert.ok(ja.includes('<html lang="ja"'));

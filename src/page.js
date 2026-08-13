@@ -36,8 +36,24 @@ select { font: inherit; font-size: .9rem; padding: .5rem .7rem; border: 1px soli
 .brand-logo { width: 1.2rem; height: 1.2rem; display: block; flex-shrink: 0; }
 .brand span { color: #9a9a9a; font-weight: 500; }
 .card { background: #fff; border: 1px solid #e8e6e1; border-radius: 14px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
-.card h2 { font-size: 1rem; margin: 0 0 .4rem; display: flex; align-items: center; gap: .6rem; }
-.card p { font-size: .88rem; color: #555; margin: .2rem 0 .8rem; }
+.card h2 { font-size: 1rem; margin: 0; display: flex; align-items: center; gap: .6rem; }
+.card p { font-size: .88rem; color: #555; margin: 0; }
+/* Spacing scaffold: every card surface (welcome "How it works", the wizard
+   steps, the login form, …) leans on one consistent vertical rhythm — a fixed
+   gap between a card's direct children, tighter under the heading — instead of
+   ad-hoc per-element margins. Forms get the same rhythm between their fields. */
+.card > * + * { margin-top: .75rem; }
+.card > h2 + * { margin-top: .4rem; }
+form > * + * { margin-top: .75rem; }
+/* A label directly above its control sits tight against it (not the full
+   .75rem rhythm). */
+.card label + select,
+.card label + input[type="text"],
+.card label + input[type="password"],
+.card label + input[type="file"] { margin-top: .25rem; }
+/* Collapse empty status/result/progress containers so they never leave a
+   phantom gap before their JS fills them. */
+#status:empty, #cf-status:empty, #result:empty, #progress:empty { display: none; }
 .num {
   display: inline-flex; align-items: center; justify-content: center;
   width: 1.5rem; height: 1.5rem; border-radius: 50%;
@@ -45,9 +61,8 @@ select { font: inherit; font-size: .9rem; padding: .5rem .7rem; border: 1px soli
 }
 #step2, #step3, #wizard-submit { opacity: .45; pointer-events: none; transition: opacity .2s; }
 #step2.enabled, #step3.enabled, #wizard-submit.enabled { opacity: 1; pointer-events: auto; }
-.cf-turnstile { margin: .75rem 0; }
 .hidden { display: none; }
-.status { font-size: .85rem; margin-top: .5rem; }
+.status { font-size: .85rem; }
 code { background: #f0efec; padding: .1rem .3rem; border-radius: 4px; font-size: .85em; }
 ul.steps { list-style: none; padding: 0; margin: .75rem 0 0; font-size: .85rem; }
 ul.steps li { padding: .15rem 0; }
@@ -203,7 +218,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
       </p>
       <p style="margin:1.5rem 0 3rem">${cta}</p>
       <section class="card"><h2>${t(locale, 'welcomeHow')}</h2>
-        <ol style="font-size:.95rem; margin:.5rem 0 0; padding-left:1.1rem; color:#333">
+        <ol style="font-size:.95rem; margin-bottom:0; padding-left:1.1rem; color:#333">
           ${[1, 2, 3]
             .map((i) => {
               // "Title — description": bold only the title (before the em-dash).
@@ -214,7 +229,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
         </ol>
       </section>
       <section class="card"><h2>${t(locale, 'welcomeKeys')}</h2>
-        <p style="margin-bottom:0">
+        <p>
           ${t(locale, 'welcomeKeysBody')}
         </p>
       </section>
@@ -238,7 +253,7 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
         <form id="login">
           <input type="email" id="email" placeholder="${t(locale, 'emailPlaceholder')}" required autofocus />
           ${turnstileWidget(turnstileSitekey)}
-          <button class="btn" type="submit" style="margin-top:.75rem; width:100%">${t(locale, 'emailMeLink')}</button>
+          <button class="btn" type="submit" style="width:100%">${t(locale, 'emailMeLink')}</button>
         </form>
         <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
       </div>
@@ -358,7 +373,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
               .join('')}
           </tbody>
         </table>
-        <button class="btn" id="new-site" style="margin-top:.75rem">${t(locale, 'createAnotherSite')}</button>
+        <button class="btn" id="new-site">${t(locale, 'createAnotherSite')}</button>
       </section>`
     : '';
   const wizardHidden = hasSites ? 'hidden' : '';
@@ -390,12 +405,12 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         <h2><span class="num">2</span> ${t(locale, 'step2Title')}</h2>
         <p>${t(locale, 'step2Body')}</p>
         <input type="password" id="cf-token" placeholder="${t(locale, 'cfTokenPlaceholder')}" autocomplete="off" />
-        <button class="btn" id="cf-verify" style="margin-top:.75rem">${t(locale, 'verifyToken')}</button>
-        <div id="cf-account-picker" class="hidden" style="margin:.5rem 0">
+        <button class="btn" id="cf-verify">${t(locale, 'verifyToken')}</button>
+        <div id="cf-account-picker" class="hidden">
           <label style="font-size:.8rem; color:#555" for="cf-account">${t(locale, 'cfAccount')}</label>
           <select id="cf-account" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px; background:#fff; margin-top:.25rem"></select>
         </div>
-        <div id="cf-account-id-field" class="hidden" style="margin:.5rem 0">
+        <div id="cf-account-id-field" class="hidden">
           <label style="font-size:.8rem; color:#555" for="cf-account-id">${t(locale, 'cfAccountId')}</label>
           <input type="text" id="cf-account-id" placeholder="e.g. 685065f0bb97a19eb21d063f9d5efdc6" autocomplete="off" style="margin-top:.25rem" />
           <p class="muted" style="font-size:.75rem; margin:.3rem 0 0">
@@ -409,22 +424,22 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         <h2><span class="num">3</span> ${t(locale, 'step3Title')}</h2>
         <p>${t(locale, 'step3Body').replace('<name>', '&lt;name&gt;')}</p>
         <input type="text" id="site-name" placeholder="${t(locale, 'siteNamePlaceholder')}" autocomplete="off" />
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem">
           <input type="checkbox" id="site-public" style="margin-top:.3rem" />
           <span style="display:block">
             ${t(locale, 'makePublic')}
             <span class="muted" style="display:block; font-size:.78rem">${t(locale, 'publicHint')}</span>
           </span>
         </label>
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .8rem">
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem">
           <input type="checkbox" id="site-branded" checked style="margin-top:.3rem" />
           <span style="display:block">
             ${t(locale, 'assignBranded').replace('<name>', '<code>&lt;name&gt;</code>')}
             <span class="muted" style="display:block; font-size:.78rem">${t(locale, 'brandedHint')}</span>
           </span>
         </label>
-        <div class="muted hidden" style="font-size:.78rem; margin:-.4rem 0 .8rem" id="branded-fallback-hint"></div>
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem; margin:.1rem 0 .8rem">
+        <div class="muted hidden" style="font-size:.78rem" id="branded-fallback-hint"></div>
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:center; gap:.5rem">
           <span style="min-width:5rem">${t(locale, 'languageLabel')}</span>
           <select id="site-lang" style="flex:1">
             <option value="en">English</option>
@@ -433,7 +448,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             <option value="zh-Hans">简体中文</option>
           </select>
         </label>
-        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 0">
+        <label style="font-size:.85rem; color:#555; display:flex; align-items:flex-start; gap:.5rem">
           <input type="checkbox" id="bring-content" style="margin-top:.3rem" />
           <span style="display:block">
             ${t(locale, 'bringContent')}
@@ -445,12 +460,12 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       <section class="card hidden" id="step4">
         <h2><span class="num">4</span> ${t(locale, 'step4Title')}</h2>
         <p>${t(locale, 'step4Body')}</p>
-        <label style="font-size:.85rem; color:#555; display:block; margin:.1rem 0 .3rem">${t(locale, 'contentFromSite')}</label>
+        <label style="font-size:.85rem; color:#555; display:block">${t(locale, 'contentFromSite')}</label>
         <select id="content-source" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px">
           <option value="">${t(locale, 'contentNone')}</option>
           ${sites.map((s) => `<option value="${s.origin}">${s.origin.replace('https://', '')}</option>`).join('')}
         </select>
-        <label class="muted" style="display:block; font-size:.75rem; margin:.6rem 0 .3rem">${t(locale, 'contentUploadBundle')}</label>
+        <label class="muted" style="display:block; font-size:.75rem">${t(locale, 'contentUploadBundle')}</label>
         <input type="file" id="content-bundle" accept=".zip" style="width:100%" />
       </section>
 
@@ -601,11 +616,20 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       $('site-branded').onchange = () => { updateBrandedHint(); };
 
       // Step 4 is conditional: it only appears when the user opts in to bringing
-      // a previous site's content over (checkbox in step 3).
+      // a previous site's content over (checkbox in step 3). Unchecking clears
+      // any source/bundle the user already picked, so a stale selection can
+      // never ride along on the provision POST after a final opt-out.
       const step4 = $('step4');
       const bringContent = $('bring-content');
       if (bringContent && step4) bringContent.onchange = () => {
-        step4.classList.toggle('hidden', !bringContent.checked);
+        const show = bringContent.checked;
+        step4.classList.toggle('hidden', !show);
+        if (!show) {
+          const src = $('content-source');
+          if (src) src.value = '';
+          const bundle = $('content-bundle');
+          if (bundle) bundle.value = '';
+        }
       };
 
       const pbar = $('pbar'), pfill = $('pbar-fill');
@@ -642,7 +666,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             $('site-branded').checked = false;
             updateBrandedHint();
           }
-          const contentBundle = await readBundle();
+          const contentBundle = bringContent && bringContent.checked ? await readBundle() : '';
           const r = await fetch('/api/provision', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -651,7 +675,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
               public: $('site-public').checked,
               branded: $('site-branded').checked,
               lang: selLang ? selLang.value : 'en',
-              contentSource: ($('content-source') || {}).value || '',
+              contentSource: bringContent && bringContent.checked ? (($('content-source') || {}).value || '') : '',
               contentBundle,
               turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
