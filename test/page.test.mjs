@@ -74,7 +74,7 @@ test('messagePage renders and any inline scripts parse', () => {
 test('pages render localized strings + the language switcher footer', () => {
   const ja = welcomePage({}, { locale: 'ja', pathname: '/' });
   assert.ok(ja.includes('<html lang="ja"'));
-  assert.ok(ja.includes('本当に数分で公開できる、無料のブログ。'));
+  assert.ok(ja.includes('数分で公開できる、無料のブログ。'));
   // Footer language switcher: all four native names, current marked.
   assert.ok(ja.includes('class="lang-switch"'));
   assert.ok(ja.includes('>日本語</a>') && ja.includes('aria-current="true"'));
@@ -98,5 +98,5 @@ test('pages render localized strings + the language switcher footer', () => {
 test('unknown/missing locale falls back to English', () => {
   const en = welcomePage({});
   assert.ok(en.includes('<html lang="en"'));
-  assert.ok(en.includes('A free blog you can actually publish to in minutes.'));
+  assert.ok(en.includes('A free blog that goes live in minutes.'));
 });
