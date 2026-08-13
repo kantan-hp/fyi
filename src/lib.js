@@ -1,6 +1,8 @@
 // Pure helpers shared by the worker routes. Kept free of worker-only APIs so
 // they can be unit-tested with plain `node --test`.
 
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -28,6 +30,12 @@ export function b64decode(b64) {
   const bin = atob(String(b64).replace(/\s/g, ''));
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return textDecoder.decode(bytes);
+}
+
+/** Base64 → raw bytes (for binary payloads like zip bundles). */
+export function b64decodeBytes(b64) {
+  const bin = atob(String(b64).replace(/\s/g, ''));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 function b64urlEncode(str) {
@@ -402,4 +410,50 @@ export function upgradeState(status) {
   if (status.ciGreen === false) return { state: 'N/A', reason: 'ci' };
   if (status.from && status.to && status.from !== status.to) return { state: 'yes', reason: null };
   return { state: 'no', reason: null };
+}
+
+// ---------------------------------------------------------------------------
+// Content transfer — the user data contract as an export/import bundle. The
+// portable set is exactly the three user-owned paths (isUserDataPath): no core,
+// no config.yml (its backend lines are re-injected by the provisioner).
+
+/** The blob paths in a repo tree that belong to the user data contract. */
+export function transferPathsFromTree(tree) {
+  return (tree || [])
+    .filter((entry) => entry.type === 'blob' && isUserDataPath(entry.path))
+    .map((entry) => entry.path);
+}
+
+/** Build a zip (Uint8Array) from [{path, content}] — the export bundle. */
+export function buildZip(files) {
+  const entries = {};
+  for (const f of files || []) entries[f.path] = strToU8(String(f.content ?? ''));
+  return zipSync(entries);
+}
+
+/**
+ * Parse a zip bundle into [{path, content}], keeping only user-data paths so a
+ * malformed or hostile bundle can never smuggle a core/config.yml file into an
+ * import.
+ */
+export function parseZip(bytes) {
+  const entries = unzipSync(bytes);
+  const files = [];
+  for (const [path, data] of Object.entries(entries)) {
+    if (!isUserDataPath(path)) continue;
+    files.push({ path, content: strFromU8(data) });
+  }
+  return files;
+}
+
+/** Set `site.lang` on an imported src/config.json, preserving everything else. */
+export function applyLangToConfig(configJson, lang) {
+  try {
+    const cfg = JSON.parse(configJson);
+    const settings = Array.isArray(cfg) ? cfg[0] : cfg;
+    if (settings && settings.site) settings.site.lang = lang;
+    return JSON.stringify(cfg, null, 2) + '\n';
+  } catch {
+    return configJson;
+  }
 }

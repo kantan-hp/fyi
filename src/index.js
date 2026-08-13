@@ -43,6 +43,11 @@ import {
   isReservedSlug,
   slugLengthOk,
   normalizeCustomDomain,
+  transferPathsFromTree,
+  buildZip,
+  parseZip,
+  applyLangToConfig,
+  b64decodeBytes,
 } from './lib.js';
 import { welcomePage, loginPage, messagePage, appPage } from './page.js';
 import { resolveLocale, LANG_COOKIE, DEFAULT_LOCALE, isLocale, t } from './i18n.js';
@@ -127,6 +132,7 @@ export default {
       if (pathname === '/api/sites/update') return siteUpdate(request, env);
       if (pathname === '/api/sites/baseline') return siteBaseline(request, env);
       if (pathname === '/api/sites/delete') return siteDelete(request, env);
+      if (pathname === '/api/sites/export') return siteExport(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
       if (pathname === '/api/wizard/logout') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request, env);
@@ -910,6 +916,8 @@ async function provision(request, env) {
     branded: siteBranded = false,
     lang: siteLang = DEFAULT_LOCALE,
     customDomain: customDomainRaw,
+    contentSource: contentSourceRaw,
+    contentBundle: contentBundleRaw,
     turnstile,
   } = await request.json().catch(() => ({}));
   const customDomain = normalizeCustomDomain(customDomainRaw);
@@ -1088,6 +1096,41 @@ async function provision(request, env) {
       if (!cfg) throw new Error('The generated repository is still empty — GitHub is slow; retry in a minute.');
       ok('repo-ready');
 
+      // 5b. Content import (optional): overlay the three user-data paths from a
+      //     source (an existing kantan site or an uploaded bundle) onto the fresh
+      //     repo before the editor steps. Never touches core or config.yml; the
+      //     imported src/config.json keeps its settings but its site.lang is set
+      //     to the wizard's choice.
+      let contentImported = false;
+      const sourceOrigin = typeof contentSourceRaw === 'string' ? contentSourceRaw.trim() : '';
+      const hasBundle = typeof contentBundleRaw === 'string' && contentBundleRaw.length > 0;
+      if (sourceOrigin || hasBundle) {
+        let files = [];
+        if (sourceOrigin) {
+          const sourceSite = await getSiteByOrigin(env, sourceOrigin);
+          if (!sourceSite || sourceSite.owner_login !== login) {
+            throw new Error('Content source site not found, or it is not yours.');
+          }
+          const srcInfo = await siteRepoInfo(ghT, sourceSite.repo);
+          files = await readUserDataFiles(ghT, srcInfo.owner, srcInfo.name, srcInfo.headSha);
+          ok('content-source', `${sourceSite.repo} → ${slug}`);
+        } else {
+          try {
+            files = parseZip(b64decodeBytes(contentBundleRaw));
+          } catch {
+            throw new Error('Could not read the uploaded content bundle.');
+          }
+          ok('content-bundle', `${files.length} file(s) from the bundle`);
+        }
+        files = files.map((f) =>
+          f.path === 'src/config.json' ? { path: f.path, content: applyLangToConfig(f.content, lang) } : f,
+        );
+        if (files.length) {
+          await overlayUserData(ghT, login, slug, files);
+          contentImported = true;
+        }
+      }
+
       // 6. Repo secrets for the deploy workflow (GitHub sealed-box encryption)
       const pub = await ghJson(ghT, `/repos/${login}/${slug}/actions/secrets/public-key`);
       const keyBytes = Uint8Array.from(atob(pub.key), (c) => c.charCodeAt(0));
@@ -1125,32 +1168,36 @@ async function provision(request, env) {
       //     already carries the site's name and chosen language (site.lang).
       //     Best-effort like the old title write, but the language step is
       //     surfaced so a failed write isn't silent — the site would otherwise
-      //     be born English.
+      //     be born English. Skipped when content was imported: the imported
+      //     config.json already carries the user's title/settings, and site.lang
+      //     was set by the overlay.
       let siteTitled = false;
       let siteLanged = false;
-      try {
-        const cfgJson = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
-        const config = JSON.parse(b64decode(cfgJson.content));
-        if (config && config.site) {
-          config.site.title = slug;
-          config.site.lang = lang;
-          await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
-            method: 'PUT',
-            body: {
-              message: 'chore: set site title and default language',
-              content: b64encode(JSON.stringify(config, null, 2) + '\n'),
-              sha: cfgJson.sha,
-              branch: 'main',
-            },
-          });
-          siteTitled = true;
-          siteLanged = true;
+      if (!contentImported) {
+        try {
+          const cfgJson = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
+          const config = JSON.parse(b64decode(cfgJson.content));
+          if (config && config.site) {
+            config.site.title = slug;
+            config.site.lang = lang;
+            await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
+              method: 'PUT',
+              body: {
+                message: 'chore: set site title and default language',
+                content: b64encode(JSON.stringify(config, null, 2) + '\n'),
+                sha: cfgJson.sha,
+                branch: 'main',
+              },
+            });
+            siteTitled = true;
+            siteLanged = true;
+          }
+        } catch {
+          // best-effort — the site is still fully provisioned
         }
-      } catch {
-        // best-effort — the site is still fully provisioned
       }
-      ok('site-titled', siteTitled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
-      ok('site-lang', siteLanged ? `default language set to "${lang}"` : 'could not set default language — the site will default to English');
+      ok('site-titled', contentImported ? 'kept from imported content' : siteTitled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
+      ok('site-lang', contentImported ? `default language set to "${lang}" (imported)` : siteLanged ? `default language set to "${lang}"` : 'could not set default language — the site will default to English');
 
       // 8. Point the editor at this repo + the panel's shared auth proxy.
       //     This is the SECOND push (the config.json commit in 8a was the
@@ -1381,6 +1428,51 @@ async function siteRepoInfo(token, repo) {
   const info = await ghJson(token, `/repos/${owner}/${name}`);
   const ref = await ghJson(token, `/repos/${owner}/${name}/git/ref/heads/${info.default_branch}`);
   return { owner, name, defaultBranch: info.default_branch, headSha: ref.object.sha };
+}
+
+/**
+ * Read the user data contract (src/content/**, public/images/**, src/config.json)
+ * out of a repo at a commit, as [{path, content}]. The source for export and for
+ * kantan→kantan import.
+ */
+async function readUserDataFiles(token, owner, name, headSha) {
+  const tree = await repoTree(token, owner, name, headSha);
+  const files = [];
+  for (const path of transferPathsFromTree(tree)) {
+    const b64 = await fileContentBase64(token, owner, name, path, headSha);
+    if (b64) files.push({ path, content: b64decode(b64) });
+  }
+  return files;
+}
+
+/**
+ * Write [{path, content}] onto a repo's default branch in a single tree commit
+ * (base_tree = current head, so existing files are preserved). Reused by the
+ * update engine and content import.
+ */
+async function overlayUserData(token, owner, name, files) {
+  const info = await siteRepoInfo(token, `${owner}/${name}`);
+  const headCommit = await ghJson(token, `/repos/${owner}/${name}/git/commits/${info.headSha}`);
+  const treeEntries = [];
+  for (const f of files) {
+    const blob = await ghJson(token, `/repos/${owner}/${name}/git/blobs`, {
+      method: 'POST',
+      body: { content: b64encode(f.content), encoding: 'base64' },
+    });
+    treeEntries.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha });
+  }
+  const newTree = await ghJson(token, `/repos/${owner}/${name}/git/trees`, {
+    method: 'POST',
+    body: { base_tree: headCommit.tree.sha, tree: treeEntries },
+  });
+  const commit = await ghJson(token, `/repos/${owner}/${name}/git/commits`, {
+    method: 'POST',
+    body: { message: 'chore: import content', tree: newTree.sha, parents: [info.headSha] },
+  });
+  await ghJson(token, `/repos/${owner}/${name}/git/refs/heads/${info.defaultBranch}`, {
+    method: 'PATCH',
+    body: { sha: commit.sha, force: false },
+  });
 }
 
 /** True when the template's own CI (npm run check + build) is green on main. */
@@ -1806,5 +1898,37 @@ async function siteDelete(request, env) {
     });
   } catch (err) {
     return json({ error: `Delete failed: ${String((err && err.message) || err)}`, steps }, 502);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content transfer — export the user data contract as a downloadable zip
+
+async function siteExport(request, env) {
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'not logged in' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub to export your content.', connectUrl: '/auth/github' }, 401);
+  if (!(await kvRateLimit(env, 'site-export', canonicalizeEmail(session.sub), await getLimit(env, 'rl.site_check_max', RL.siteCheck), await getLimit(env, 'rl.site_window', RL.siteWindow)))) {
+    return rateLimited('site-export', 'Too many export requests — try again in a few minutes.');
+  }
+  const { origin } = await request.json().catch(() => ({}));
+  const site = await getSiteByOrigin(env, origin);
+  if (!site) return json({ error: 'unknown site' }, 404);
+  if (site.owner_email !== session.sub) return json({ error: 'not your site' }, 403);
+
+  try {
+    const info = await siteRepoInfo(wizard.t, site.repo);
+    const files = await readUserDataFiles(wizard.t, info.owner, info.name, info.headSha);
+    const zip = buildZip(files);
+    const slug = site.repo.split('/')[1];
+    return new Response(zip, {
+      headers: {
+        'content-type': 'application/zip',
+        'content-disposition': `attachment; filename="${slug}-content.zip"`,
+      },
+    });
+  } catch (err) {
+    return json({ error: `Export failed: ${String((err && err.message) || err)}` }, 502);
   }
 }

@@ -338,7 +338,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
                         <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
                         <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
-                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}">${t(locale, 'deleteSite')}</button></div>
+                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-export="${s.origin}">${t(locale, 'exportContent')}</button> <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}">${t(locale, 'deleteSite')}</button></div>
                       </div>
                     </td>
                   </tr>`,
@@ -426,6 +426,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           <input type="text" id="site-custom-domain" placeholder="${t(locale, 'customDomainPlaceholder')}" autocomplete="off" style="flex:1" />
         </label>
         <p class="muted" style="font-size:.75rem; margin:-.4rem 0 .8rem">${t(locale, 'customDomainHint')}</p>
+        <label style="font-size:.85rem; color:#555; display:block; margin:.1rem 0 .3rem">${t(locale, 'bringContent')}</label>
+        <select id="content-source" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px">
+          <option value="">${t(locale, 'contentNone')}</option>
+          ${sites.map((s) => `<option value="${s.origin}">${s.origin.replace('https://', '')}</option>`).join('')}
+        </select>
+        <label class="muted" style="display:block; font-size:.75rem; margin:.3rem 0">${t(locale, 'contentUploadBundle')}</label>
+        <input type="file" id="content-bundle" accept=".zip" style="width:100%" />
+        <p class="muted" style="font-size:.75rem; margin:.3rem 0 .8rem">${t(locale, 'bringContentHint')}</p>
         ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>${t(locale, 'createSite')}</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
@@ -485,6 +493,19 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           refreshCreateButton();
         }
       };
+
+      // Read the optional content bundle file as a base64 string (the data-URL
+      // prefix is stripped) for the provision POST.
+      const readBundle = () =>
+        new Promise((resolve) => {
+          const input = $('content-bundle');
+          const file = input && input.files && input.files[0];
+          if (!file) return resolve('');
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || '').split(',')[1] || '');
+          fr.onerror = () => resolve('');
+          fr.readAsDataURL(file);
+        });
 
       async function init() {
         const r = await fetch('/api/wizard/me');
@@ -591,6 +612,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             $('site-branded').checked = false;
             updateBrandedHint();
           }
+          const contentBundle = await readBundle();
           const r = await fetch('/api/provision', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -600,6 +622,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
               branded: $('site-branded').checked,
               lang: selLang ? selLang.value : 'en',
               customDomain: $('site-custom-domain').value,
+              contentSource: ($('content-source') || {}).value || '',
+              contentBundle,
               turnstile: (document.querySelector('input[name="cf-turnstile-response"]') || {}).value || '',
             }),
           });
@@ -802,8 +826,42 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const baseline = e.target.closest('[data-baseline]');
         if (baseline) { e.stopPropagation(); runBaseline(baseline.dataset.baseline); return; }
         const del = e.target.closest('[data-delete]');
-        if (del) { e.stopPropagation(); openDeleteModal(del.dataset.delete); }
+        if (del) { e.stopPropagation(); openDeleteModal(del.dataset.delete); return; }
+        const exp = e.target.closest('[data-export]');
+        if (exp) { e.stopPropagation(); exportContent(exp.dataset.export); }
       });
+
+      async function exportContent(origin) {
+        const r = await fetch('/api/sites/export', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ origin }),
+        });
+        if (r.status === 401) {
+          const d = await r.json().catch(() => ({}));
+          if (d.connectUrl) { localStorage.setItem('kantan-check-site', origin); location.href = d.connectUrl; return; }
+          errorModal(window.I18N.notSignedIn);
+          return;
+        }
+        if (!r.ok) { errorModal(window.I18N.exportFailed + ' (' + r.status + ')'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = origin.replace('https://', '') + '-content.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function startFreshWithContent(origin) {
+        closeModal();
+        if (wizard) wizard.classList.remove('hidden');
+        if (newSite) newSite.classList.add('active');
+        const sel = $('content-source');
+        if (sel) sel.value = origin;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
 
       async function runBaseline(origin) {
         const data = await apiPost('/api/sites/baseline', { origin });
@@ -872,7 +930,10 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         }
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || window.I18N.updateNotAvailable;
-          openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + window.I18N.filesBlocking + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+          const escape = data.reason === 'dirty'
+            ? '<button class="btn" onclick="startFreshWithContent(\\'' + esc(origin) + '\\')">' + window.I18N.startFreshBringContent + '</button>'
+            : '';
+          openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + window.I18N.filesBlocking + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), escape + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
           renderCheck(origin, data);
           return;
         }

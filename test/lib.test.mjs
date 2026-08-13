@@ -17,6 +17,10 @@ import {
   isValidEmail,
   normalizeCustomDomain,
   randomHex,
+  transferPathsFromTree,
+  buildZip,
+  parseZip,
+  applyLangToConfig,
 } from '../src/lib.js';
 
 test('slugifySiteName accepts simple names', () => {
@@ -158,4 +162,47 @@ test('normalizeCustomDomain rejects invalid or reserved hosts', () => {
   assert.equal(normalizeCustomDomain('foo.kantan-hp.fyi'), null);
   assert.equal(normalizeCustomDomain('pages.dev'), null);
   assert.equal(normalizeCustomDomain('kantan-hp.fyi'), null);
+});
+
+test('transferPathsFromTree keeps only user-data blob paths', () => {
+  const tree = [
+    { path: 'src/content/blog/foo.md', type: 'blob', sha: 'a' },
+    { path: 'public/images/x.png', type: 'blob', sha: 'b' },
+    { path: 'src/config.json', type: 'blob', sha: 'c' },
+    { path: 'src/layouts/Base.astro', type: 'blob', sha: 'd' },
+    { path: 'public/admin/config.yml', type: 'blob', sha: 'e' },
+    { path: 'src/content/blog', type: 'tree', sha: 'f' },
+  ];
+  assert.deepEqual(transferPathsFromTree(tree).sort(), [
+    'public/images/x.png',
+    'src/config.json',
+    'src/content/blog/foo.md',
+  ]);
+});
+
+test('buildZip/parseZip round-trips and drops non-user-data paths', () => {
+  const zip = buildZip([
+    { path: 'src/content/blog/hello.md', content: '---\ntitle: hi\n---\nbody' },
+    { path: 'public/images/pic.png', content: '\u0000binary' },
+    { path: 'src/config.json', content: '{"site":{"title":"T"}}' },
+  ]);
+  const files = parseZip(zip);
+  assert.equal(files.length, 3);
+  assert.equal(files.find((f) => f.path === 'src/content/blog/hello.md').content, '---\ntitle: hi\n---\nbody');
+
+  const hostile = buildZip([
+    { path: 'src/layouts/BaseLayout.astro', content: 'evil' },
+    { path: 'public/admin/config.yml', content: 'evil' },
+    { path: 'src/content/ok.md', content: 'ok' },
+  ]);
+  const parsed = parseZip(hostile);
+  assert.deepEqual(parsed.map((f) => f.path), ['src/content/ok.md']);
+});
+
+test('applyLangToConfig sets site.lang and preserves the rest', () => {
+  const cfg = JSON.stringify({ site: { title: 'My Blog', lang: 'en' }, theme: { preset: 'paper' } });
+  const out = JSON.parse(applyLangToConfig(cfg, 'ja'));
+  assert.equal(out.site.lang, 'ja');
+  assert.equal(out.site.title, 'My Blog');
+  assert.equal(out.theme.preset, 'paper');
 });
