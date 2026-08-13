@@ -33,6 +33,25 @@ test('welcomePage renders and any inline scripts parse', () => {
   assert.ok(welcomePage({ email: 'a@b.co' }).length > 0);
 });
 
+test('logged-in home topbar shows <email> logout, not a redundant Dashboard link', () => {
+  const p = welcomePage({ email: 'a@b.co' });
+  assert.ok(p.includes('a@b.co'), 'email shown in the topbar');
+  assert.ok(p.includes('href="/api/logout"'), 'logout link present');
+  assert.ok(!p.includes('href="/app">Dashboard</a>'), 'no redundant Dashboard link');
+  assert.ok(p.includes('Go to my dashboard'), 'CTA reads Go to my dashboard');
+  // Logged out: no email/logout, CTA is Get started.
+  const out = welcomePage({ email: null });
+  assert.ok(!out.includes('href="/api/logout"'));
+});
+
+test('wizard submit panel is a named "Confirm creation" step with a dynamic number', () => {
+  const app = appPage({ email: 'a@b.co', sites: [], hasSites: false }, {});
+  assert.ok(app.includes('id="submit-step"'), 'numbered heading element present');
+  assert.ok(app.includes('>4</span> Confirm creation'), 'defaults to step 4');
+  assert.ok(app.includes('id="submit-step">4</span> Confirm creation'));
+  assert.ok(app.includes('syncStepNumber'), 'number re-syncs when step 4 toggles');
+});
+
 test('footer is pinned to the bottom on every page (sticky footer)', () => {
   const p = welcomePage({ email: 'a@b.co' });
   assert.ok(p.includes('min-height: 100vh'), 'body pins to viewport height');

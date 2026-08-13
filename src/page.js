@@ -208,7 +208,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        ${email ? `<a class="muted" style="font-size:.85rem" href="/app">${t(locale, 'navDashboard')}</a>` : ''}
+        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
         ${t(locale, 'welcomeH1')}
@@ -470,6 +470,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       </section>
 
       <section class="card" id="wizard-submit">
+        <h2><span class="num" id="submit-step">4</span> ${t(locale, 'stepConfirmTitle')}</h2>
         ${turnstileWidget(turnstileSitekey)}
         <button class="btn" id="create" disabled>${t(locale, 'createSite')}</button>
         <div class="pbar" id="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>
@@ -618,12 +619,18 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       // Step 4 is conditional: it only appears when the user opts in to bringing
       // a previous site's content over (checkbox in step 3). Unchecking clears
       // any source/bundle the user already picked, so a stale selection can
-      // never ride along on the provision POST after a final opt-out.
+      // never ride along on the provision POST after a final opt-out. The final
+      // "Confirm creation" step renumbers (4 ⇄ 5) to match the visible steps.
       const step4 = $('step4');
+      const submitStep = $('submit-step');
       const bringContent = $('bring-content');
+      const syncStepNumber = () => {
+        if (submitStep) submitStep.textContent = bringContent && bringContent.checked ? '5' : '4';
+      };
       if (bringContent && step4) bringContent.onchange = () => {
         const show = bringContent.checked;
         step4.classList.toggle('hidden', !show);
+        syncStepNumber();
         if (!show) {
           const src = $('content-source');
           if (src) src.value = '';
@@ -631,6 +638,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           if (bundle) bundle.value = '';
         }
       };
+      syncStepNumber();
 
       const pbar = $('pbar'), pfill = $('pbar-fill');
       let barAnim = null;
@@ -919,6 +927,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         if (newSite) newSite.classList.add('active');
         if (bringContent) bringContent.checked = true;
         if (step4) step4.classList.remove('hidden');
+        syncStepNumber();
         const sel = $('content-source');
         if (sel) sel.value = origin;
         window.scrollTo({ top: 0, behavior: 'smooth' });
