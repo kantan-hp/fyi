@@ -23,6 +23,8 @@ a { color: #1a1a1a; }
 .btn.active { background: #1a1a1a; color: #fff; }
 .btn.active:hover { opacity: .9; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.danger { color: #b3261e; border-color: #b3261e; background: #fff; }
+.btn.danger:hover { background: #fdecea; }
 input[type="email"], input[type="text"], input[type="password"] {
   font: inherit; font-size: .95rem; width: 100%; padding: .6rem .8rem;
   border: 1px solid #d4d2cd; border-radius: 10px; background: #fff;
@@ -366,7 +368,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
                         <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
                         <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
                         <div class="detail-reason" data-reason="${s.origin}"></div>
-                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-export="${s.origin}">${t(locale, 'exportContent')}</button> <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}">${t(locale, 'deleteSite')}</button></div>
+                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-export="${s.origin}">${t(locale, 'exportContent')}</button> <button class="btn danger" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}" data-name="${s.project}">${t(locale, 'deleteSite')}</button></div>
                       </div>
                     </td>
                   </tr>`,
@@ -888,7 +890,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const baseline = e.target.closest('[data-baseline]');
         if (baseline) { e.stopPropagation(); runBaseline(baseline.dataset.baseline); return; }
         const del = e.target.closest('[data-delete]');
-        if (del) { e.stopPropagation(); openDeleteModal(del.dataset.delete); return; }
+        if (del) { e.stopPropagation(); openDeleteModal(del.dataset.delete, del.dataset.name); return; }
         const exp = e.target.closest('[data-export]');
         if (exp) { e.stopPropagation(); exportContent(exp.dataset.export); }
       });
@@ -949,16 +951,15 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         }
       }
 
-      function openDeleteModal(origin) {
-        const host = origin.replace('https://', '');
+      function openDeleteModal(origin, name) {
         openModal(
           window.I18N.deleteConfirmTitle,
           '<p class="err">' + esc(window.I18N.deleteConfirmBody) + '</p>' +
           '<label style="font-size:.85rem; display:block; margin:.25rem 0">' + window.I18N.deleteCfToken + '</label>' +
           '<input type="password" id="del-cf-token" placeholder="' + window.I18N.cfTokenPlaceholder + '" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />' +
-          '<label style="font-size:.85rem; display:block; margin:.5rem 0 .25rem">' + window.I18N.deleteTypeHost + ' <code>' + esc(host) + '</code></label>' +
+          '<label style="font-size:.85rem; display:block; margin:.5rem 0 .25rem">' + window.I18N.deleteTypeName + ' <code>' + esc(name) + '</code></label>' +
           '<input type="text" id="del-confirm" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />',
-          '<button class="btn" id="del-go">' + window.I18N.deleteConfirm + '</button>' +
+          '<button class="btn danger" id="del-go">' + window.I18N.deleteConfirm + '</button>' +
           '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.deleteCancel + '</button>',
         );
         $('del-go').onclick = () => doDelete(origin);
