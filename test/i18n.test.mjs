@@ -42,8 +42,8 @@ test('resolveLocale: default is en when nothing matches', () => {
 
 test('t: interpolates {tokens} and falls back to en / the key itself', () => {
   assert.equal(t('en', 'updateTo', { to: 'abc1234' }), 'Update to abc1234');
-  assert.equal(t('ja', 'createSite'), 'ウェブサイトを作成');
-  assert.equal(t('ja', 'updateCompleteBody', { to: 'abc1234', n: 2 }), 'サイトをテンプレート abc1234 に更新しました（2 ファイル変更）。デプロイが開始され、1〜2分で公開されます。');
+  assert.equal(t('ja', 'createSite'), 'サイトを作成');
+  assert.equal(t('ja', 'updateCompleteBody', { to: 'abc1234', n: 2 }), 'サイトをテンプレート abc1234 に更新しました（2 ファイル変更）。公開までは 1〜2 分ほどかかります。');
   // Missing key in a non-default locale → falls back to the English string
   // (site is not a key; the assertion is about the fallback chain, see below).
   assert.equal(t('zh-Hans', 'createSite'), '创建我的网站');
