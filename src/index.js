@@ -1861,10 +1861,10 @@ async function siteDelete(request, env) {
   }
 
   // The typed confirmation is validated server-side; a destructive action must
-  // not trust the client to have checked it.
-  const host = site.origin.replace(/^https:\/\//, '');
-  if (confirm !== host) {
-    return json({ error: 'Type the site address exactly to confirm deletion.', steps: [] }, 400);
+  // not trust the client to have checked it. The user types the site NAME (the
+  // slug / Pages project name), not the address.
+  if (confirm !== site.project) {
+    return json({ error: 'Type the site name exactly to confirm deletion.', steps: [] }, 400);
   }
 
   const [owner, name] = site.repo.split('/');
@@ -1893,7 +1893,7 @@ async function siteDelete(request, env) {
     // 1. Branded DNS (operator token) — best-effort: the serving CNAME.
     if (site.origin.endsWith('.kantan-hp.fyi')) {
       try {
-        const slug = host.replace('.kantan-hp.fyi', '');
+        const slug = site.project;
         const records = await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records?name=${encodeURIComponent(`${slug}.kantan-hp.fyi`)}`);
         for (const r of records || []) {
           await cf(env.CF_ZONE_DNS_TOKEN, `/zones/${CF_ZONE_ID}/dns_records/${r.id}`, { method: 'DELETE' });
