@@ -485,7 +485,7 @@ async function loginCallback(request, env) {
 }
 
 function logout(request) {
-  const headers = new Headers({ location: '/login' });
+  const headers = new Headers({ location: '/' });
   headers.append('set-cookie', cookie(SESSION_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
   headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
   return new Response(null, { status: 302, headers });
