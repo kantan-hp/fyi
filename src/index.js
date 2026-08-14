@@ -51,7 +51,7 @@ import {
   b64encodeBytes,
   MAX_BUNDLE_BYTES,
 } from './lib.js';
-import { welcomePage, loginPage, messagePage, appPage, LOGO_B64 } from './page.js';
+import { welcomePage, loginPage, messagePage, appPage, LOGO_B64, LOGO_SVG } from './page.js';
 import { resolveLocale, LANG_COOKIE, DEFAULT_LOCALE, isLocale, t } from './i18n.js';
 
 const GITHUB_API = 'https://api.github.com';
@@ -114,6 +114,7 @@ export default {
       }
       if (pathname === '/login/callback' && method === 'GET') return loginCallback(request, env);
       if (pathname === '/logo.png' && method === 'GET') return logo();
+      if (pathname === '/logo.svg' && method === 'GET') return logoSvg();
       if (pathname === '/app' && method === 'GET') return appRoute(request, env);
       // Language switcher: set the kantan_lang cookie and return to the page.
       if (pathname === '/setlang' && method === 'GET') return setLang(request);
@@ -178,6 +179,14 @@ function text(body, status = 200) {
 function logo() {
   return new Response(b64decodeBytes(LOGO_B64), {
     headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' },
+  });
+}
+
+// The kantan logo mark as an SVG for BIMI (default._bimi). BIMI requires
+// image/svg+xml and HTTPS; the record's l= tag points here.
+function logoSvg() {
+  return new Response(LOGO_SVG, {
+    headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=31536000, immutable' },
   });
 }
 
