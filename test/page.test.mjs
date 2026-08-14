@@ -158,3 +158,20 @@ test('unknown/missing locale falls back to English', () => {
   assert.ok(en.includes('<html lang="en"'));
   assert.ok(en.includes('A free blog that goes live in minutes.'));
 });
+
+test('delete action is danger-styled and confirms by site name (slug)', () => {
+  const app = appPage(
+    {
+      email: 'a@b.co',
+      sites: [{ origin: 'https://my-blog.pages.dev', repo: 'me/my-blog', project: 'my-blog', created_at: '2026-08-01' }],
+      hasSites: true,
+    },
+    {},
+  );
+  // The delete button is danger-styled (red text / white bg / red border).
+  assert.ok(app.includes('.btn.danger'), 'danger style is defined');
+  assert.ok(app.includes('class="btn danger"'), 'delete button carries the danger style');
+  assert.ok(app.includes('data-name="my-blog"'), 'delete button carries the site name (slug)');
+  // The confirm prompt asks for the site name, not the address.
+  assert.ok(app.includes('"deleteTypeName"'), 'site-name confirm string is embedded');
+});
