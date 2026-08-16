@@ -208,11 +208,20 @@ test('parseZip rejects an oversized bundle', async () => {
   await assert.rejects(() => parseZip(big), /too large/);
 });
 
-test('parseZip rejects a decompression bomb via the streaming cap', async () => {
+test('parseZip rejects a decompression bomb via the streaming size cap', async () => {
   const big = new Uint8Array(101 * 1024 * 1024); // zeros — highly compressible
   const zip = buildZip([{ path: 'public/images/big.png', data: big }]);
   assert.ok(zip.length < 1024 * 1024, 'compresses well');
-  await assert.rejects(() => parseZip(zip), /too large when unpacked/);
+  // A single 101 MB file trips the per-file cap (25 MB) before the total cap.
+  await assert.rejects(() => parseZip(zip), /too large/);
+});
+
+test('parseZip rejects a single oversized file via the per-file cap', async () => {
+  // 30 MB is over the per-file cap (25 MB) but under the total cap (100 MB),
+  // so this exercises the per-file gate specifically.
+  const big = new Uint8Array(30 * 1024 * 1024);
+  const zip = buildZip([{ path: 'public/images/big.png', data: big }]);
+  await assert.rejects(() => parseZip(zip), /a file in the bundle is too large/);
 });
 
 test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {
