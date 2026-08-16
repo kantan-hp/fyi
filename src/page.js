@@ -352,17 +352,6 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/** Escape a value for interpolation inside a single-quoted JS string that itself
- *  lives inside a double-quoted HTML attribute (e.g. onclick="fn('…')").
- *  esc() alone is not enough: &#39; is decoded back to ' by the HTML parser
- *  before the JS engine runs, so a ' would break the JS string. This escapes
- *  \ and ' for the JS layer first, then HTML-escaps the result for the
- *  attribute layer. Safe today (origin is URL-charset-constrained), but this
- *  closes the class so a future charset widening can't reintroduce it. */
-function jsStr(s) {
-  return esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
-}
-
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
     esc(title),
@@ -768,6 +757,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       const modal = $('update-modal');
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const jsStr = (s) => esc(JSON.stringify(String(s == null ? '' : s)));
       const shortSha = (s) => s ? s.slice(0, 7) : '';
       const openModal = (title, body, actions) => {
         $('um-title').textContent = title;
@@ -1034,7 +1024,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || window.I18N.updateNotAvailable;
           const escape = data.reason === 'dirty'
-            ? '<button class="btn" onclick="startFreshWithContent(\\'' + jsStr(origin) + '\\')">' + esc(window.I18N.startFreshBringContent) + '</button>'
+            ? '<button class="btn" onclick="startFreshWithContent(' + jsStr(origin) + ')">' + esc(window.I18N.startFreshBringContent) + '</button>'
             : '';
           openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + esc(window.I18N.filesBlocking) + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), escape + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
           renderCheck(origin, data);
@@ -1065,7 +1055,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';
           if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err">' + esc(window.I18N.majorConfirmPrompt) + '</p>';
           openModal(window.I18N.updateFailed, body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\\'' + jsStr(origin) + '\\', true)">' + esc(window.I18N.confirmAnyway) + '</button>'
+            ? '<button class="btn" onclick="doUpdate(' + jsStr(origin) + ', true)">' + esc(window.I18N.confirmAnyway) + '</button>'
             : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
         }
       }
