@@ -224,6 +224,18 @@ test('parseZip rejects a single oversized file via the per-file cap', async () =
   await assert.rejects(() => parseZip(zip), /a file in the bundle is too large/);
 });
 
+test('parseZip rejects many near-cap files via the total cap (multi-file bomb)', async () => {
+  // Five 24 MB files: each is under the 25 MB per-file cap, but together they
+  // blow past the 100 MB total cap — this exercises the TOTAL gate, which the
+  // single-file 101 MB case (per-file cap) never reaches.
+  const files = Array.from({ length: 5 }, (_, i) => ({
+    path: `public/images/part${i}.png`,
+    data: new Uint8Array(24 * 1024 * 1024),
+  }));
+  const zip = buildZip(files);
+  await assert.rejects(() => parseZip(zip), /too large when unpacked/);
+});
+
 test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {
   const enc = new TextEncoder();
   const dec = new TextDecoder();

@@ -434,8 +434,10 @@ export const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
  * whole bundle, but one pathological file (e.g. a huge uncompressed PNG) can
  * still dominate isolate memory before the running total trips — this per-file
  * cap aborts it the moment that one file crosses the threshold. 25 MB is well
- * above any legitimate blog asset and keeps peak memory inside the 128 MB
- * isolate budget even with a few in-flight buffers.
+ * above any legitimate blog asset and reduces peak memory (it does NOT bound
+ * it to any isolate budget — several near-cap files can still sum large before
+ * the total cap trips). A stricter total cap for legit bundles is tracked in
+ * the performance plan.
  */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** Upper bound on the number of files an imported bundle may carry. */
