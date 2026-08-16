@@ -160,7 +160,17 @@ ${extraHead}
 ${body}
 <footer class="panel-footer"><div class="foot"><a class="gh-link" href="https://github.com/kantan-hp" target="_blank" rel="noopener" aria-label="GitHub" title="kantan-hp on GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>${languageSwitcher(locale, pathname)}</div></footer>
 <script>
-  // Collapsed language switcher: click the toggle to expand all languages
+   // Logout is a POST (not a GET <a> link) so a cross-site <a>/<img> can't
+   // CSRF-clear the victim's session (SameSite=Lax allows top-level GETs).
+   function panelLogout() {
+     fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+       .then(function () { location.href = '/'; });
+   }
+   function wizardDisconnect() {
+     fetch('/api/wizard/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+       .then(function () { location.href = '/app'; });
+   }
+   // Collapsed language switcher: click the toggle to expand all languages
   // (upward), click a language to navigate (full reload collapses it again),
   // click elsewhere to close.
   (function () {
@@ -216,7 +226,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>` : ''}
+        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
         ${t(locale, 'welcomeH1')}
@@ -342,6 +352,17 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/** Escape a value for interpolation inside a single-quoted JS string that itself
+ *  lives inside a double-quoted HTML attribute (e.g. onclick="fn('…')").
+ *  esc() alone is not enough: &#39; is decoded back to ' by the HTML parser
+ *  before the JS engine runs, so a ' would break the JS string. This escapes
+ *  \ and ' for the JS layer first, then HTML-escaps the result for the
+ *  attribute layer. Safe today (origin is URL-charset-constrained), but this
+ *  closes the class so a future charset widening can't reintroduce it. */
+function jsStr(s) {
+  return esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
     esc(title),
@@ -395,7 +416,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
+        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}
@@ -409,7 +430,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         </div>
         <div id="gh-logged-in" class="hidden">
           <div class="status ok">✓ ${t(locale, 'connectedAs')} <strong id="gh-login"></strong>
-            &nbsp;<a href="/api/wizard/logout" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
+            &nbsp;<a href="#" onclick="wizardDisconnect()" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
           </div>
         </div>
       </section>
@@ -1013,7 +1034,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || window.I18N.updateNotAvailable;
           const escape = data.reason === 'dirty'
-            ? '<button class="btn" onclick="startFreshWithContent(\\'' + esc(origin) + '\\')">' + esc(window.I18N.startFreshBringContent) + '</button>'
+            ? '<button class="btn" onclick="startFreshWithContent(\\'' + jsStr(origin) + '\\')">' + esc(window.I18N.startFreshBringContent) + '</button>'
             : '';
           openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + esc(window.I18N.filesBlocking) + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), escape + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
           renderCheck(origin, data);
@@ -1044,7 +1065,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';
           if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err">' + esc(window.I18N.majorConfirmPrompt) + '</p>';
           openModal(window.I18N.updateFailed, body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">' + esc(window.I18N.confirmAnyway) + '</button>'
+            ? '<button class="btn" onclick="doUpdate(\\'' + jsStr(origin) + '\\', true)">' + esc(window.I18N.confirmAnyway) + '</button>'
             : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
         }
       }

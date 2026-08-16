@@ -129,7 +129,7 @@ export default {
 
       // Panel APIs
       if (pathname === '/api/login' && method === 'POST') return loginIssue(request, env);
-      if (pathname === '/api/logout') return logout(request);
+      if (pathname === '/api/logout' && method === 'POST') return logout(request);
       if (pathname === '/api/me') return apiMe(request, env);
       if (pathname === '/api/sites') return listSites(request, env);
       if (pathname === '/api/sites/check') return siteUpdateCheck(request, env);
@@ -138,7 +138,7 @@ export default {
       if (pathname === '/api/sites/delete') return siteDelete(request, env);
       if (pathname === '/api/sites/export') return siteExport(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
-      if (pathname === '/api/wizard/logout') return wizardLogout(request);
+      if (pathname === '/api/wizard/logout' && method === 'POST') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request, env);
       if (pathname === '/api/provision' && method === 'POST') return provision(request, env);
 
@@ -518,11 +518,15 @@ async function loginCallback(request, env) {
   return new Response(null, { status: 302, headers });
 }
 
+// Logout is a POST (not a GET link) so a cross-site <a>/<img> can't
+// CSRF-clear the victim's session (SameSite=Lax allows top-level GETs).
+// The client POSTs via fetch and redirects itself; the cookies are cleared
+// server-side regardless.
 function logout(request) {
-  const headers = new Headers({ location: '/' });
+  const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
   headers.append('set-cookie', cookie(SESSION_COOKIE, '', { secure: true, maxAge: 0 }));
   headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }));
-  return new Response(null, { status: 302, headers });
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 // ---------------------------------------------------------------------------
@@ -560,11 +564,12 @@ async function wizardMe(request, env) {
   return json({ login: wizard.login });
 }
 
+// Same CSRF rationale as logout(): POST-only so a cross-site link can't
+// silently drop the wizard cookie.
 function wizardLogout(request) {
-  return new Response(null, {
-    status: 302,
-    headers: { location: '/app', 'set-cookie': cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }) },
-  });
+  const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
+  headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 // ---------------------------------------------------------------------------
@@ -979,6 +984,15 @@ async function siteCountForLogin(env, login) {
 // Cloudflare account lookup (wizard step 2)
 
 async function cfAccounts(request, env) {
+  // Require the email session + wizard cookie: this endpoint validates an
+  // arbitrary CF token and returns its account names. Without auth, anyone
+  // can POST a token and learn whether it's valid, using the panel's egress
+  // IP as a token-validation laundering proxy. The wizard calls it after
+  // step 1 anyway, so the auth gates don't add a step.
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'login required' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub first (step 1).' }, 401);
   if (!ipRateLimit(request, 'cf-accounts', await getLimit(env, 'rl.cf_accounts_ip_max', RL.cfAccountsIp), await getLimit(env, 'rl.cf_accounts_ip_window', RL.cfAccountsIpWindow))) {
     return rateLimited('cf-accounts-ip');
   }

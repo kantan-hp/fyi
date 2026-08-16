@@ -36,12 +36,13 @@ test('welcomePage renders and any inline scripts parse', () => {
 test('logged-in home topbar shows <email> logout, not a redundant Dashboard link', () => {
   const p = welcomePage({ email: 'a@b.co' });
   assert.ok(p.includes('a@b.co'), 'email shown in the topbar');
-  assert.ok(p.includes('href="/api/logout"'), 'logout link present');
+  assert.ok(p.includes('onclick="panelLogout()"'), 'logout link present');
+  assert.ok(!p.includes('href="/api/logout"'), 'logout is POST, not a GET link');
   assert.ok(!p.includes('href="/app">Dashboard</a>'), 'no redundant Dashboard link');
   assert.ok(p.includes('Go to my dashboard'), 'CTA reads Go to my dashboard');
   // Logged out: no email/logout, CTA is Get started.
   const out = welcomePage({ email: null });
-  assert.ok(!out.includes('href="/api/logout"'));
+  assert.ok(!out.includes('onclick="panelLogout()"'));
 });
 
 test('wizard submit panel is a named "Confirm creation" step with a dynamic number', () => {
