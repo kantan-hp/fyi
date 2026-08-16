@@ -129,7 +129,7 @@ export default {
 
       // Panel APIs
       if (pathname === '/api/login' && method === 'POST') return loginIssue(request, env);
-      if (pathname === '/api/logout') return logout(request);
+      if (pathname === '/api/logout' && method === 'POST') return logout(request);
       if (pathname === '/api/me') return apiMe(request, env);
       if (pathname === '/api/sites') return listSites(request, env);
       if (pathname === '/api/sites/check') return siteUpdateCheck(request, env);
@@ -138,7 +138,7 @@ export default {
       if (pathname === '/api/sites/delete') return siteDelete(request, env);
       if (pathname === '/api/sites/export') return siteExport(request, env);
       if (pathname === '/api/wizard/me') return wizardMe(request, env);
-      if (pathname === '/api/wizard/logout') return wizardLogout(request);
+      if (pathname === '/api/wizard/logout' && method === 'POST') return wizardLogout(request);
       if (pathname === '/api/cf/accounts' && method === 'POST') return cfAccounts(request, env);
       if (pathname === '/api/provision' && method === 'POST') return provision(request, env);
 
@@ -158,19 +158,53 @@ export default {
 // ---------------------------------------------------------------------------
 // Small helpers
 
+// Baseline browser security headers applied to every response the worker sends.
+// X-Content-Type-Options stops MIME sniffing, Referrer-Policy limits the
+// Referer header to same-origin on cross-origin navigations, and
+// Permissions-Policy interest-cohort=() opts the panel out of FLoC/cohort APIs.
+// HTML responses additionally carry a CSP (see html()).
+const BASE_SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'permissions-policy': 'interest-cohort=()',
+};
+
+// CSP for HTML panel responses. The panel pages (page.js) embed inline
+// <script> blocks (window.I18N, fetches to /api/*) and load the Turnstile
+// script from https://challenges.cloudflare.com, so script-src admits 'self'
+// 'unsafe-inline' + the Turnstile origin. data: is needed for the inlined logo
+// <img>; connect-src 'self' covers same-origin API calls and
+// https://api.github.com covers the editor-handshake repo-permission probe.
+// frame-ancestors 'none' blocks the panel being framed (clickjacking).
+const PANEL_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com; frame-ancestors 'none'";
+
+/** Merge the baseline security headers into `headers`; add the panel CSP when `csp`. */
+function withSecurity(headers, { csp = false } = {}) {
+  const out = { ...headers, ...BASE_SECURITY_HEADERS };
+  if (csp) out['content-security-policy'] = PANEL_CSP;
+  return out;
+}
+
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj, null, 2), {
     status,
-    headers: { 'content-type': 'application/json;charset=UTF-8' },
+    headers: withSecurity({ 'content-type': 'application/json;charset=UTF-8' }),
   });
 }
 
 function html(body, status = 200) {
-  return new Response(body, { status, headers: { 'content-type': 'text/html;charset=UTF-8' } });
+  return new Response(body, {
+    status,
+    headers: withSecurity({ 'content-type': 'text/html;charset=UTF-8' }, { csp: true }),
+  });
 }
 
 function text(body, status = 200) {
-  return new Response(body, { status, headers: { 'content-type': 'text/plain;charset=UTF-8' } });
+  return new Response(body, {
+    status,
+    headers: withSecurity({ 'content-type': 'text/plain;charset=UTF-8' }),
+  });
 }
 
 // The kantan logo mark as a cacheable PNG. Served as a real asset (rather than
@@ -178,7 +212,7 @@ function text(body, status = 200) {
 // it by URL — Gmail and many clients strip data-URI images.
 function logo() {
   return new Response(b64decodeBytes(LOGO_B64), {
-    headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' },
+    headers: withSecurity({ 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' }),
   });
 }
 
@@ -186,7 +220,7 @@ function logo() {
 // image/svg+xml and HTTPS; the record's l= tag points here.
 function logoSvg() {
   return new Response(LOGO_SVG, {
-    headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=31536000, immutable' },
+    headers: withSecurity({ 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=31536000, immutable' }),
   });
 }
 
@@ -198,7 +232,7 @@ function cookie(name, value, { secure = true, maxAge } = {}) {
 }
 
 function redirect(location) {
-  return new Response(null, { status: 302, headers: { location } });
+  return new Response(null, { status: 302, headers: withSecurity({ location }) });
 }
 
 // Language switcher: set the kantan_lang cookie and return to the page.
@@ -479,16 +513,20 @@ async function loginCallback(request, env) {
   const headers = new Headers({ location: '/app' });
   headers.append(
     'set-cookie',
-    cookie(SESSION_COOKIE, session, { secure: isHttps(request), maxAge: SESSION_MAX_AGE_MS / 1000 }),
+    cookie(SESSION_COOKIE, session, { secure: true, maxAge: SESSION_MAX_AGE_MS / 1000 }),
   );
   return new Response(null, { status: 302, headers });
 }
 
+// Logout is a POST (not a GET link) so a cross-site <a>/<img> can't
+// CSRF-clear the victim's session (SameSite=Lax allows top-level GETs).
+// The client POSTs via fetch and redirects itself; the cookies are cleared
+// server-side regardless.
 function logout(request) {
-  const headers = new Headers({ location: '/' });
-  headers.append('set-cookie', cookie(SESSION_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
-  headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
-  return new Response(null, { status: 302, headers });
+  const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
+  headers.append('set-cookie', cookie(SESSION_COOKIE, '', { secure: true, maxAge: 0 }));
+  headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 // ---------------------------------------------------------------------------
@@ -526,11 +564,12 @@ async function wizardMe(request, env) {
   return json({ login: wizard.login });
 }
 
+// Same CSRF rationale as logout(): POST-only so a cross-site link can't
+// silently drop the wizard cookie.
 function wizardLogout(request) {
-  return new Response(null, {
-    status: 302,
-    headers: { location: '/app', 'set-cookie': cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }) },
-  });
+  const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
+  headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 // ---------------------------------------------------------------------------
@@ -563,12 +602,12 @@ async function oauthStart(request, env, flow) {
     status: 302,
     headers: {
       location: redirectUrl.href,
-      'set-cookie': cookie(NONCE_COOKIE, nonce, { secure: isHttps(request), maxAge: 600 }),
+      'set-cookie': cookie(NONCE_COOKIE, nonce, { secure: true, maxAge: 600 }),
     },
   });
 }
 
-async function exchangeCode(env, code) {
+async function exchangeCode(env, request, code) {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'kantan-panel' },
@@ -576,6 +615,11 @@ async function exchangeCode(env, code) {
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
       code,
+      // Defense-in-depth against a confused-deputy variant: GitHub doesn't
+      // require redirect_uri here, but passing the same value used at
+      // authorize (panelBase is always https) ties the code to the registered
+      // callback. Matches oauthStart's redirect_uri exactly.
+      redirect_uri: panelBase(env, request) + '/oauth/callback',
     }),
   });
   return res.json();
@@ -594,7 +638,7 @@ async function oauthCallback(request, env) {
   const code = url.searchParams.get('code');
   const state = await verifyPayload(env.SESSION_SECRET, url.searchParams.get('state'));
   const cookies = parseCookies(request.headers.get('cookie'));
-  const clearNonce = cookie(NONCE_COOKIE, '', { secure: isHttps(request), maxAge: 0 });
+  const clearNonce = cookie(NONCE_COOKIE, '', { secure: true, maxAge: 0 });
   const toApp = (headers) => {
     headers.append('set-cookie', clearNonce);
     return new Response(null, { status: 302, headers });
@@ -613,18 +657,18 @@ async function oauthCallback(request, env) {
     const reason = 'Authentication cancelled — the login window was closed before finishing.';
     if (state.flow === 'decap') {
       return new Response(renderDecapHandshake({ error: reason, message: reason }), {
-        headers: { 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce },
+        headers: withSecurity({ 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce }),
       });
     }
     return toApp(new Headers({ location: '/app' }));
   }
 
-  const result = await exchangeCode(env, code);
+  const result = await exchangeCode(env, request, code);
   if (result.error) {
     const reason = result.error_description || 'GitHub could not complete the login — try again.';
     if (state.flow === 'decap') {
       return new Response(renderDecapHandshake({ error: reason, message: reason }), {
-        headers: { 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce },
+        headers: withSecurity({ 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce }),
       });
     }
     return toApp(new Headers({ location: '/app' }));
@@ -643,7 +687,7 @@ async function oauthCallback(request, env) {
     headers.append('set-cookie', clearNonce);
     headers.append(
       'set-cookie',
-      cookie(WIZARD_COOKIE, wizard, { secure: isHttps(request), maxAge: WIZARD_MAX_AGE_MS / 1000 }),
+      cookie(WIZARD_COOKIE, wizard, { secure: true, maxAge: WIZARD_MAX_AGE_MS / 1000 }),
     );
     return new Response(null, { status: 302, headers });
   }
@@ -653,7 +697,7 @@ async function oauthCallback(request, env) {
   // token has push access to that site's repo — checked client-side against
   // the GitHub API with the user's own token).
   return new Response(renderDecapHandshake({ token: result.access_token, provider: 'github' }), {
-    headers: { 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce },
+    headers: withSecurity({ 'content-type': 'text/html;charset=UTF-8', 'set-cookie': clearNonce }),
   });
 }
 
@@ -662,13 +706,20 @@ async function oauthCallback(request, env) {
 // shared-proxy model: the opener origin is validated at handshake time
 // instead of being assumed to be this site's own origin.
 function renderDecapHandshake(content) {
-  const payload = JSON.stringify(content)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
+  // Embed the payload in a separate <script type="application/json"> block and
+  // read it via textContent, instead of interpolating it into an inline JS
+  // string (`JSON.parse('${...}')`). JSON.stringify does not escape `<`, so a
+  // `</script>` substring in content.error (= GitHub's error_description) would
+  // close the script block early → XSS on the panel origin. Escaping `<` →
+  // \u003c keeps the JSON valid inside an HTML <script> element and JSON.parse
+  // reconstructs it (the same pattern the template's src/lib/seo.ts jsonLd and
+  // page.js i18nScript use).
+  const payload = JSON.stringify(content).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Authorizing…</title></head><body>
+<script type="application/json" id="decap-payload">${payload}</script>
 <script>
-  const PAYLOAD = JSON.parse('${payload}');
+  const PAYLOAD = JSON.parse(document.getElementById('decap-payload').textContent);
   const fail = (msg) => { document.body.textContent = 'Authorization failed: ' + msg; };
   if (!window.opener) {
     document.body.textContent = 'Authorization complete. You can close this window.';
@@ -933,6 +984,15 @@ async function siteCountForLogin(env, login) {
 // Cloudflare account lookup (wizard step 2)
 
 async function cfAccounts(request, env) {
+  // Require the email session + wizard cookie: this endpoint validates an
+  // arbitrary CF token and returns its account names. Without auth, anyone
+  // can POST a token and learn whether it's valid, using the panel's egress
+  // IP as a token-validation laundering proxy. The wizard calls it after
+  // step 1 anyway, so the auth gates don't add a step.
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'login required' }, 401);
+  const wizard = await getWizard(request, env);
+  if (!wizard) return json({ error: 'Connect GitHub first (step 1).' }, 401);
   if (!ipRateLimit(request, 'cf-accounts', await getLimit(env, 'rl.cf_accounts_ip_max', RL.cfAccountsIp), await getLimit(env, 'rl.cf_accounts_ip_window', RL.cfAccountsIpWindow))) {
     return rateLimited('cf-accounts-ip');
   }
@@ -956,6 +1016,21 @@ async function decapLookup(request, env) {
   }
   const origin = new URL(request.url).searchParams.get('origin') || '';
   if (!/^https:\/\//.test(origin)) return json({ error: 'origin not allowed' }, 403);
+  // Hostname sanity check before the D1 read: require a syntactically valid
+  // https origin whose hostname is a plain DNS name (letters, digits, dots,
+  // hyphens). Rejects anything carrying a path/query/port-shaped injection or
+  // control chars that could be smuggled downstream. The D1 registry match
+  // below stays the authoritative gate — this is just a charset fence, so it
+  // never rejects a valid custom domain (no suffix check).
+  let originUrl;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return json({ error: 'origin not allowed' }, 403);
+  }
+  if (!/^[a-z0-9.-]+$/i.test(originUrl.hostname)) {
+    return json({ error: 'origin not allowed' }, 403);
+  }
   // The editor origin is matched against the D1 registry (canonical origin,
   // legacy pages.dev deploy_url, or a user-attached custom domain) — a suffix
   // guess is no longer the gate.
@@ -1408,7 +1483,7 @@ async function provision(request, env) {
 
       // Zero-knowledge: the GitHub token cookie dies the moment provisioning is done.
       const headers = new Headers({ 'content-type': 'application/json;charset=UTF-8' });
-      headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: isHttps(request), maxAge: 0 }));
+      headers.append('set-cookie', cookie(WIZARD_COOKIE, '', { secure: true, maxAge: 0 }));
 
       return new Response(
         JSON.stringify(
@@ -1578,6 +1653,9 @@ async function siteVersionStatus(env, token, site) {
     repoTree(token, tplOwner, tplName, recorded),
     repoTree(token, tplOwner, tplName, current),
   ]);
+  // Expose the template's `to` tree so siteUpdate can reuse it instead of
+  // re-fetching (one fewer GitHub call per update).
+  result.toTree = tplToTree;
 
   const [siteCfgB64, fromCfgB64, toCfgB64] = await Promise.all([
     fileContentBase64(token, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
@@ -1706,9 +1784,10 @@ async function siteUpdate(request, env) {
     // Build a single version-bump commit on the site's own default branch.
     const headCommit = await ghJson(wizard.t, `/repos/${siteInfo.owner}/${siteInfo.name}/git/commits/${headSha}`);
     const baseTree = headCommit.tree.sha;
-    const tplToTree = await repoTree(wizard.t, tplOwner, tplName, to);
+    // Reuse the template `to` tree siteVersionStatus already fetched (one fewer
+    // GitHub call per update). It was computed against `to === status.to`.
     const toBlobMap = {};
-    for (const e of tplToTree) toBlobMap[e.path] = e;
+    for (const e of status.toTree) toBlobMap[e.path] = e;
 
     const [siteCfgB64, toCfgB64] = await Promise.all([
       fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, headSha),

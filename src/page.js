@@ -160,7 +160,17 @@ ${extraHead}
 ${body}
 <footer class="panel-footer"><div class="foot"><a class="gh-link" href="https://github.com/kantan-hp" target="_blank" rel="noopener" aria-label="GitHub" title="kantan-hp on GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>${languageSwitcher(locale, pathname)}</div></footer>
 <script>
-  // Collapsed language switcher: click the toggle to expand all languages
+   // Logout is a POST (not a GET <a> link) so a cross-site <a>/<img> can't
+   // CSRF-clear the victim's session (SameSite=Lax allows top-level GETs).
+   function panelLogout() {
+     fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+       .then(function () { location.href = '/'; });
+   }
+   function wizardDisconnect() {
+     fetch('/api/wizard/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+       .then(function () { location.href = '/app'; });
+   }
+   // Collapsed language switcher: click the toggle to expand all languages
   // (upward), click a language to navigate (full reload collapses it again),
   // click elsewhere to close.
   (function () {
@@ -216,7 +226,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>` : ''}
+        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
         ${t(locale, 'welcomeH1')}
@@ -273,6 +283,10 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
       const tsWidget = document.querySelector('.cf-turnstile');
       let turnstileOk = !tsWidget;
       const updateLoginBtn = () => { if (loginBtn) loginBtn.disabled = !turnstileOk; };
+      // Escape HTML in dynamic text interpolated into status.innerHTML — the
+      // server-returned error / devLink and the I18N strings flow into markup.
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const rerunTurnstile = () => {
         if (tsWidget && window.turnstile) {
           window.turnstile.reset(tsWidget);
@@ -285,7 +299,7 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
       window.onTurnstileError = () => {
         turnstileOk = false;
         updateLoginBtn();
-        status.innerHTML = '<span class="err">' + window.I18N.verifFailed + '</span>';
+        status.innerHTML = '<span class="err">' + esc(window.I18N.verifFailed) + '</span>';
       };
       window.onTurnstileExpired = () => rerunTurnstile();
       updateLoginBtn();
@@ -293,11 +307,11 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
         e.preventDefault();
         const btn = loginBtn;
         if (tsWidget && !turnstileOk) {
-          status.innerHTML = '<span class="err">' + window.I18N.completeVerification + '</span>';
+          status.innerHTML = '<span class="err">' + esc(window.I18N.completeVerification) + '</span>';
           return;
         }
         btn.disabled = true;
-        status.innerHTML = '<span class="muted">' + window.I18N.sending + '</span>';
+        status.innerHTML = '<span class="muted">' + esc(window.I18N.sending) + '</span>';
         const r = await fetch('/api/login', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -308,17 +322,17 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
-          status.innerHTML = '<span class="err">' + (data.error || window.I18N.couldNotSend) + '</span>';
+          status.innerHTML = '<span class="err">' + esc(data.error || window.I18N.couldNotSend) + '</span>';
           rerunTurnstile();
           if (!(tsWidget && window.turnstile)) btn.disabled = false;
           return;
         }
-        status.innerHTML = '<span class="ok">' + window.I18N.checkInbox + '</span>';
+        status.innerHTML = '<span class="ok">' + esc(window.I18N.checkInbox) + '</span>';
         btn.textContent = window.I18N.loginLinkSent;
         if (data.devLink) {
           status.insertAdjacentHTML('beforeend',
-            '<br><span class="muted" style="font-size:.8rem">' + window.I18N.devModeLink + '</span>' +
-            '<br><a href="' + data.devLink + '">' + data.devLink + '</a>');
+            '<br><span class="muted" style="font-size:.8rem">' + esc(window.I18N.devModeLink) + '</span>' +
+            '<br><a href="' + esc(data.devLink) + '">' + esc(data.devLink) + '</a>');
         }
         // The link has been sent and the turnstile token is single-use. Leave
         // the button disabled and do NOT re-run the widget — re-running would
@@ -391,7 +405,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="/api/logout">${t(locale, 'navLogout')}</a></div>
+        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}
@@ -405,7 +419,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         </div>
         <div id="gh-logged-in" class="hidden">
           <div class="status ok">✓ ${t(locale, 'connectedAs')} <strong id="gh-login"></strong>
-            &nbsp;<a href="/api/wizard/logout" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
+            &nbsp;<a href="#" onclick="wizardDisconnect()" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
           </div>
         </div>
       </section>
@@ -515,7 +529,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         refreshCreateButton();
         const result = $('result');
         if (result) {
-          result.innerHTML = '<div class="status err">' + window.I18N.verifFailed + '</div>';
+          result.innerHTML = '<div class="status err">' + esc(window.I18N.verifFailed) + '</div>';
         }
       };
       window.onTurnstileExpired = () => resetTurnstile();
@@ -592,7 +606,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           cfAccountId = null;
           const sel = $('cf-account');
           sel.innerHTML = data.accounts
-            .map((a) => '<option value="' + a.id + '">' + a.name + '</option>')
+            .map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>')
             .join('');
           sel.onchange = () => { cfAccountId = sel.value; refreshCreateButton(); };
           $('cf-account-picker').classList.remove('hidden');
@@ -717,14 +731,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         if (data.ok) {
           setBar('100%', 'ok');
           const meanwhile = (data.site.pagesDevUrl && data.site.pagesDevUrl !== data.site.url)
-            ? '<br>' + window.I18N.meanwhileLive + ' <a href="' + data.site.pagesDevUrl + '" target="_blank" rel="noopener">' + data.site.pagesDevUrl.replace('https://', '') + '</a>'
+            ? '<br>' + esc(window.I18N.meanwhileLive) + ' <a href="' + esc(data.site.pagesDevUrl) + '" target="_blank" rel="noopener">' + esc(data.site.pagesDevUrl.replace('https://', '')) + '</a>'
             : '';
           $('result').innerHTML =
-            '<div class="result"><strong>' + window.I18N.yourSiteBuilding + '</strong><br>' +
-            window.I18N.repo + ' <a href="' + data.site.repo + '" target="_blank" rel="noopener">' + data.site.repo.replace('https://github.com/', '') + '</a><br>' +
-            window.I18N.site + ' <a href="' + data.site.url + '" target="_blank" rel="noopener">' + data.site.url.replace('https://', '') + '</a>' + meanwhile + '<br>' +
-            window.I18N.editor + ' <a href="' + data.site.admin + '" target="_blank" rel="noopener">' + data.site.admin.replace('https://', '') + '</a><br>' +
-            '<span class="muted">' + data.site.note + '</span></div>';
+            '<div class="result"><strong>' + esc(window.I18N.yourSiteBuilding) + '</strong><br>' +
+            esc(window.I18N.repo) + ' <a href="' + esc(data.site.repo) + '" target="_blank" rel="noopener">' + esc(data.site.repo.replace('https://github.com/', '')) + '</a><br>' +
+            esc(window.I18N.site) + ' <a href="' + esc(data.site.url) + '" target="_blank" rel="noopener">' + esc(data.site.url.replace('https://', '')) + '</a>' + meanwhile + '<br>' +
+            esc(window.I18N.editor) + ' <a href="' + esc(data.site.admin) + '" target="_blank" rel="noopener">' + esc(data.site.admin.replace('https://', '')) + '</a><br>' +
+            '<span class="muted">' + esc(data.site.note) + '</span></div>';
           setTimeout(() => { location.href = '/app'; }, 2500);
         } else {
           setBar('85%', 'err');
@@ -743,6 +757,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       const modal = $('update-modal');
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const jsStr = (s) => esc(JSON.stringify(String(s == null ? '' : s)));
       const shortSha = (s) => s ? s.slice(0, 7) : '';
       const openModal = (title, body, actions) => {
         $('um-title').textContent = title;
@@ -754,7 +769,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
       const errorModal = (msg) => {
-        openModal(window.I18N.somethingWentWrong, '<p class="err">' + esc(msg || window.I18N.couldNotReachPanel) + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+        openModal(window.I18N.somethingWentWrong, '<p class="err">' + esc(msg || window.I18N.couldNotReachPanel) + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
       };
 
       const apiPost = async (path, body) => {
@@ -788,7 +803,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const s = up && up.upgradeable;
         const cls = s === 'yes' ? 'update' : s === 'no' ? 'uptodate' : 'dirty';
         const label = s === 'yes' ? window.I18N.yes : s === 'no' ? window.I18N.no : window.I18N.na;
-        return '<span class="badge ' + cls + '">' + label + '</span>';
+        return '<span class="badge ' + esc(cls) + '">' + esc(label) + '</span>';
       };
 
       const toggleDetail = (origin) => {
@@ -818,14 +833,14 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           const reason = REASON_TEXT[data.reason];
           reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
           if (data.reason === 'legacy') {
-            reasonCell.insertAdjacentHTML('beforeend', ' <button class="btn" data-baseline="' + esc(origin) + '" style="padding:.3rem .7rem; font-size:.8rem">' + window.I18N.setBaseline + '</button>');
+            reasonCell.insertAdjacentHTML('beforeend', ' <button class="btn" data-baseline="' + esc(origin) + '" style="padding:.3rem .7rem; font-size:.8rem">' + esc(window.I18N.setBaseline) + '</button>');
           }
           if (data.upgradeable === 'yes') {
-            upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">' + window.I18N.update + '</button>');
+            upgCell.insertAdjacentHTML('beforeend', ' <button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-upgrade="' + esc(origin) + '">' + esc(window.I18N.update) + '</button>');
             upgCell.querySelector('[data-upgrade]').onclick = () => openUpdateModal(origin);
           }
         } else {
-          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + window.I18N.check + '</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + esc(window.I18N.check) + '</button>';
           upgCell.querySelector('[data-check]').onclick = () => runCheck(origin);
         }
       };
@@ -835,13 +850,13 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
         if (reasonCell) reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
         if (upgCell) {
-          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + window.I18N.check + '</button>';
+          upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + esc(window.I18N.check) + '</button>';
         }
       };
 
       const runCheck = async (origin, { fromReturn = false } = {}) => {
         const upgCell = document.querySelector('[data-upg="' + origin + '"]');
-        if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">' + window.I18N.checking + '</span>';
+        if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">' + esc(window.I18N.checking) + '</span>';
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) {
           renderCheckButton(origin, window.I18N.couldNotCheck);
@@ -953,7 +968,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         if (data.ok) {
           renderCheckButton(origin, null);
           const cell = document.querySelector('[data-reason="' + origin + '"]');
-          if (cell) cell.innerHTML = '<span class="ok">' + window.I18N.baselineComplete + '</span>';
+          if (cell) cell.innerHTML = '<span class="ok">' + esc(window.I18N.baselineComplete) + '</span>';
         }
       }
 
@@ -961,12 +976,12 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         openModal(
           window.I18N.deleteConfirmTitle,
           '<p class="err">' + esc(window.I18N.deleteConfirmBody) + '</p>' +
-          '<label style="font-size:.85rem; display:block; margin:.25rem 0">' + window.I18N.deleteCfToken + '</label>' +
-          '<input type="password" id="del-cf-token" placeholder="' + window.I18N.cfTokenPlaceholder + '" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />' +
-          '<label style="font-size:.85rem; display:block; margin:.5rem 0 .25rem">' + window.I18N.deleteTypeName + ' <code>' + esc(name) + '</code></label>' +
+          '<label style="font-size:.85rem; display:block; margin:.25rem 0">' + esc(window.I18N.deleteCfToken) + '</label>' +
+          '<input type="password" id="del-cf-token" placeholder="' + esc(window.I18N.cfTokenPlaceholder) + '" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />' +
+          '<label style="font-size:.85rem; display:block; margin:.5rem 0 .25rem">' + esc(window.I18N.deleteTypeName) + ' <code>' + esc(name) + '</code></label>' +
           '<input type="text" id="del-confirm" autocomplete="off" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px" />',
-          '<button class="btn danger" id="del-go">' + window.I18N.deleteConfirm + '</button>' +
-          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.deleteCancel + '</button>',
+          '<button class="btn danger" id="del-go">' + esc(window.I18N.deleteConfirm) + '</button>' +
+          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.deleteCancel) + '</button>',
         );
         $('del-go').onclick = () => doDelete(origin);
       }
@@ -974,7 +989,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       async function doDelete(origin) {
         const cfToken = ($('del-cf-token') || {}).value || '';
         const confirm = ($('del-confirm') || {}).value || '';
-        openModal(window.I18N.deleting, '<p class="muted">' + window.I18N.deleting + '</p>', '');
+        openModal(window.I18N.deleting, '<p class="muted">' + esc(window.I18N.deleting) + '</p>', '');
         const data = await apiPost('/api/sites/delete', { origin, cfToken, confirm });
         if (!data) return;
         if (data.connectUrl) {
@@ -983,17 +998,17 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           return;
         }
         if (data.ok) {
-          openModal(window.I18N.deleteComplete, '<p>' + window.I18N.deleteComplete + '</p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + window.I18N.done + '</button>');
+          openModal(window.I18N.deleteComplete, '<p>' + esc(window.I18N.deleteComplete) + '</p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + esc(window.I18N.done) + '</button>');
         } else {
           const remaining = data.remaining && data.remaining.length
-            ? '<p class="err">' + window.I18N.deleteRemaining + '</p><ul>' + data.remaining.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>'
+            ? '<p class="err">' + esc(window.I18N.deleteRemaining) + '</p><ul>' + data.remaining.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>'
             : '';
-          openModal(window.I18N.deleteFailed, '<p class="err">' + esc(data.error || window.I18N.deleteFailed) + '</p>' + remaining, '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+          openModal(window.I18N.deleteFailed, '<p class="err">' + esc(data.error || window.I18N.deleteFailed) + '</p>' + remaining, '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
         }
       }
 
       async function openUpdateModal(origin) {
-        openModal(window.I18N.checking, '<p class="muted">' + window.I18N.comparing + '</p>', '');
+        openModal(window.I18N.checking, '<p class="muted">' + esc(window.I18N.comparing) + '</p>', '');
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) return;
         if (data.connectUrl) {
@@ -1002,46 +1017,46 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
           return;
         }
         if (data.upgradeable === 'no') {
-          openModal(window.I18N.upToDate, '<p>' + window.I18N.upToDateBody + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+          openModal(window.I18N.upToDate, '<p>' + esc(window.I18N.upToDateBody) + '</p>', '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
           renderCheck(origin, data);
           return;
         }
         if (data.upgradeable === 'N/A') {
           const reason = REASON_TEXT[data.reason] || window.I18N.updateNotAvailable;
           const escape = data.reason === 'dirty'
-            ? '<button class="btn" onclick="startFreshWithContent(\\'' + esc(origin) + '\\')">' + window.I18N.startFreshBringContent + '</button>'
+            ? '<button class="btn" onclick="startFreshWithContent(' + jsStr(origin) + ')">' + esc(window.I18N.startFreshBringContent) + '</button>'
             : '';
-          openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + window.I18N.filesBlocking + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), escape + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+          openModal(window.I18N.updateNotAvailable, '<p class="err">' + esc(reason) + '</p>' + (data.drifted && data.drifted.length ? '<p class="muted">' + esc(window.I18N.filesBlocking) + '</p><ul class="drift">' + data.drifted.map((d) => '<li>' + esc(d.path) + '</li>').join('') + '</ul>' : ''), escape + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
           renderCheck(origin, data);
           return;
         }
         const changes = data.changes || [];
         const list = changes.slice(0, 30).map((c) => '<li class="' + esc(c.status) + '">' + esc(c.path) + '</li>').join('');
-        const extra = changes.length > 30 ? '<p class="muted">' + window.I18N.moreFiles.replace('{n}', changes.length - 30) + '</p>' : '';
+        const extra = changes.length > 30 ? '<p class="muted">' + esc(window.I18N.moreFiles.replace('{n}', String(changes.length - 30))) + '</p>' : '';
         let gates = '';
         if (data.majorBumps && data.majorBumps.length) gates += '<p class="err"><strong>' + window.I18N.majorBump.replace('{deps}', esc(data.majorBumps.join(', '))) + '</strong></p>';
-        const body = '<p>' + window.I18N.updateFromTo.replace('{origin}', esc(origin)).replace('{from}', shortSha(data.from)).replace('{to}', shortSha(data.to)) + '</p>' +
-          '<p>' + window.I18N.filesNeverTouched + '</p>' +
-          '<ul class="changes">' + (list || '<li>' + window.I18N.noCoreChanges + '</li>') + '</ul>' + extra + gates;
+        const body = '<p>' + window.I18N.updateFromTo.replace('{origin}', esc(origin)).replace('{from}', esc(shortSha(data.from))).replace('{to}', esc(shortSha(data.to))) + '</p>' +
+          '<p>' + esc(window.I18N.filesNeverTouched) + '</p>' +
+          '<ul class="changes">' + (list || '<li>' + esc(window.I18N.noCoreChanges) + '</li>') + '</ul>' + extra + gates;
         openModal(window.I18N.updateAvailable, body,
-          '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">' + window.I18N.updateTo.replace('{to}', shortSha(data.to)) + '</button>' +
-          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+          '<button class="btn" id="update-go" data-origin="' + esc(origin) + '">' + window.I18N.updateTo.replace('{to}', esc(shortSha(data.to))) + '</button>' +
+          '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
         $('update-go').onclick = () => doUpdate(origin, data.majorBumps && data.majorBumps.length > 0);
       }
 
       async function doUpdate(origin, major) {
-        openModal(window.I18N.updating, '<p class="muted">' + window.I18N.applyingUpdate + '</p>', '');
+        openModal(window.I18N.updating, '<p class="muted">' + esc(window.I18N.applyingUpdate) + '</p>', '');
         const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
         if (!data) return;
         if (data.ok) {
-          openModal(window.I18N.updateComplete, '<p>' + window.I18N.updateCompleteBody.replace('{to}', shortSha(data.to)).replace('{n}', data.changed) + '</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">' + window.I18N.viewBuild + '</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + window.I18N.done + '</button>');
+          openModal(window.I18N.updateComplete, '<p>' + window.I18N.updateCompleteBody.replace('{to}', esc(shortSha(data.to))).replace('{n}', String(data.changed)) + '</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">' + esc(window.I18N.viewBuild) + '</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + esc(window.I18N.done) + '</button>');
           renderCheck(origin, { upgradeable: 'no' });
         } else {
           let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';
-          if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err">' + window.I18N.majorConfirmPrompt + '</p>';
+          if (data.blocked === 'major') body = '<p>' + window.I18N.majorConfirmBody.replace('{deps}', esc((data.majorBumps || []).join(', '))) + '</p><p class="err">' + esc(window.I18N.majorConfirmPrompt) + '</p>';
           openModal(window.I18N.updateFailed, body, (data.blocked === 'major'
-            ? '<button class="btn" onclick="doUpdate(\\'' + esc(origin) + '\\', true)">' + window.I18N.confirmAnyway + '</button>'
-            : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + window.I18N.close + '</button>');
+            ? '<button class="btn" onclick="doUpdate(' + jsStr(origin) + ', true)">' + esc(window.I18N.confirmAnyway) + '</button>'
+            : '') + '<button class="btn" onclick="document.getElementById(\\'update-modal\\').classList.remove(\\'open\\')">' + esc(window.I18N.close) + '</button>');
         }
       }
     </script>`,

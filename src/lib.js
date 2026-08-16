@@ -429,6 +429,15 @@ export function upgradeState(status) {
 export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
 /** Upper bound on a bundle's total decompressed size (defends against zip bombs). */
 export const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+/**
+ * Upper bound on a SINGLE file's decompressed size. The total cap guards the
+ * whole bundle, but one pathological file (e.g. a huge uncompressed PNG) can
+ * still dominate isolate memory before the running total trips — this per-file
+ * cap aborts it the moment that one file crosses the threshold. 25 MB is well
+ * above any legitimate blog asset and keeps peak memory inside the 128 MB
+ * isolate budget even with a few in-flight buffers.
+ */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** Upper bound on the number of files an imported bundle may carry. */
 export const MAX_BUNDLE_FILES = 1000;
 
@@ -480,6 +489,10 @@ function unzipLimited(bytes) {
         }
         fileSize += data.length;
         total += data.length;
+        if (fileSize > MAX_FILE_BYTES) {
+          fail(new Error('a file in the bundle is too large'));
+          return;
+        }
         if (total > MAX_UNCOMPRESSED_BYTES) {
           fail(new Error('content bundle is too large when unpacked'));
           return;
