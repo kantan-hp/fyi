@@ -162,13 +162,17 @@ ${body}
 <script>
    // Logout is a POST (not a GET <a> link) so a cross-site <a>/<img> can't
    // CSRF-clear the victim's session (SameSite=Lax allows top-level GETs).
+   // .catch(() => {}) so an offline fetch never leaves an unhandled rejection;
+   // the click already returned false, so there's no fallthrough navigation.
    function panelLogout() {
      fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-       .then(function () { location.href = '/'; });
+       .then(function () { location.href = '/'; })
+       .catch(function () {});
    }
    function wizardDisconnect() {
      fetch('/api/wizard/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-       .then(function () { location.href = '/app'; });
+       .then(function () { location.href = '/app'; })
+       .catch(function () {});
    }
    // Collapsed language switcher: click the toggle to expand all languages
   // (upward), click a language to navigate (full reload collapses it again),
@@ -226,7 +230,7 @@ export function welcomePage({ email }, { locale = 'en', pathname = '/' } = {}) {
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>` : ''}
+        ${email ? `<div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="event.preventDefault(); panelLogout()">${t(locale, 'navLogout')}</a></div>` : ''}
       </header>
       <h1 style="font-size:2.4rem; line-height:1.15; margin:2.5rem 0 .5rem; letter-spacing:-.02em">
         ${t(locale, 'welcomeH1')}
@@ -405,7 +409,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
     `<main class="wrap">
       <header class="topbar">
         <a class="brand" href="/"><img class="brand-logo" src="data:image/png;base64,${LOGO_B64}" alt="" aria-hidden="true" />kantan<span> かんたん</span></a>
-        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="panelLogout()">${t(locale, 'navLogout')}</a></div>
+        <div style="font-size:.85rem" class="muted">${esc(email)} &nbsp;<a href="#" onclick="event.preventDefault(); panelLogout()">${t(locale, 'navLogout')}</a></div>
       </header>
 
       ${table}
@@ -419,7 +423,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         </div>
         <div id="gh-logged-in" class="hidden">
           <div class="status ok">✓ ${t(locale, 'connectedAs')} <strong id="gh-login"></strong>
-            &nbsp;<a href="#" onclick="wizardDisconnect()" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
+            &nbsp;<a href="#" onclick="event.preventDefault(); wizardDisconnect()" class="muted" style="font-size:.8rem">${t(locale, 'switchAccount')}</a>
           </div>
         </div>
       </section>
@@ -513,6 +517,11 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
 
     <script>
       const $ = (id) => document.getElementById(id);
+      // Hoisted so esc/jsStr are initialized before any use (avoid the TDZ
+      // window their old location created).
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const jsStr = (s) => esc(JSON.stringify(String(s == null ? '' : s)));
       let cfToken = null, cfAccountId = null, ghConnected = false;
       const tsWidget = document.querySelector('.cf-turnstile');
       let turnstileOk = !tsWidget;
@@ -755,9 +764,6 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       init();
 
       const modal = $('update-modal');
-      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-      const jsStr = (s) => esc(JSON.stringify(String(s == null ? '' : s)));
       const shortSha = (s) => s ? s.slice(0, 7) : '';
       const openModal = (title, body, actions) => {
         $('um-title').textContent = title;
