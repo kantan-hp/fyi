@@ -1589,11 +1589,19 @@ async function fileContentBase64(token, owner, name, path, ref) {
 
 /** fileContentBase64 that treats a missing file (404) as absent, not an error.
  *  Used for files that only exist in newer template versions (e.g. lang.js), so
- *  legacy sites keep working. Mirrors provision()'s `status === 200` guard. */
+ *  legacy sites keep working. Any OTHER non-200 (403/429/5xx) still throws, so
+ *  a transient GitHub error can never masquerade as 'the template dropped the
+ *  file' and silently delete a site's lang.js. Mirrors provision()'s
+ *  `status === 200` guard for the genuine 404 case only. */
 async function fileContentBase64Optional(token, owner, name, path, ref) {
   const encoded = path.split('/').map(encodeURIComponent).join('/');
   const res = await gh(token, `/repos/${owner}/${name}/contents/${encoded}?ref=${ref}`);
-  if (res.status !== 200) return null;
+  if (res.status === 404) return null;
+  if (res.status !== 200) {
+    const data = await res.json().catch(() => ({}));
+    const msg = (data.message || res.statusText) || String(res.status);
+    throw new Error(`GitHub GET ${path}@${ref} failed (${res.status}): ${msg}`);
+  }
   const data = await res.json();
   return data.content || null;
 }
@@ -1873,8 +1881,9 @@ async function siteUpdate(request, env) {
       } else if (change.path === LANG_JS_PATH) {
         const toLangJs = await fileContentBase64Optional(wizard.t, tplOwner, tplName, LANG_JS_PATH, to);
         if (!toLangJs) {
-          // Defensive: the template dropped lang.js — delete the site's copy
-          // rather than write a zero-byte file.
+          // Pure TOCTOU defense: a template language-drop surfaces as status
+          // 'deleted' above, so a null here means the template changed between
+          // the diff and this write — drop the file rather than write empty.
           treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: null });
           continue;
         }
