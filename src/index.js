@@ -32,10 +32,12 @@ import {
   isValidEmail,
   randomHex,
   CONFIG_YML_PATH,
+  LANG_JS_PATH,
   classifyFitness,
   diffCoreTrees,
   treeToBlobMap,
   reinjectConfigBackend,
+  reinjectEditorLang,
   detectMajorBumps,
   upgradeState,
   canonicalOrigin,
@@ -1348,11 +1350,13 @@ async function provision(request, env) {
       ok('site-titled', contentImported ? 'kept from imported content' : siteTitled ? `site title set to "${slug}"` : 'no editable config.json (template layout)');
       ok('site-lang', contentImported ? `default language set to "${lang}" (imported)` : siteLanged ? `default language set to "${lang}"` : 'could not set default language — the site will default to English');
 
-      // 8. Point the editor at this repo + the panel's shared auth proxy.
+      // 8. Point the editor at this repo + the panel's shared auth proxy, and
+      //     seed the editor's UI language from the chosen site language.
       //     This is the SECOND push (the config.json commit in 8a was the
-      //     first). It triggers a rebuild that fixes the editor auth and
-      //     templates Sveltia's i18n default_locale from the chosen language
-      //     so the editor's default tab matches the site's default language.
+      //     first). It triggers a rebuild that fixes the editor auth. The
+      //     language seed is a third push (best-effort) — the template's
+      //     lang.js carries a __KANTAN_EDITOR_LANG__ marker the panel rewrites
+      //     so Sveltia opens in the site's language on first load.
       const current = b64decode(cfg.content);
       let updated = current.replace(/^(\s*)repo:.*$/m, `$1repo: ${login}/${slug}`);
       if (updated === current) throw new Error('Could not find the repo: line in config.yml.');
@@ -1362,12 +1366,6 @@ async function provision(request, env) {
           `$1branch: main\n$1base_url: ${panelOrigin}\n$1auth_endpoint: /api/decap/auth`,
         );
       }
-      updated = updated.replace(/^(\s*)default_locale:.*$/m, `$1default_locale: ${lang}`);
-      // Non-fatal: if the template's i18n block ever changes shape, the editor
-      // keeps its default locale (en) but the SITE still builds with site.lang.
-      // Surface it rather than failing provisioning (the repo: guard above is
-      // the only hard dependency on the template layout).
-      const editorLocaleOk = /^\s*default_locale:/m.test(updated);
       await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/config.yml`, {
         method: 'PUT',
         body: {
@@ -1377,12 +1375,30 @@ async function provision(request, env) {
           branch: 'main',
         },
       });
-      ok(
-        'decap-configured',
-        editorLocaleOk
-          ? 'editor configured (second build triggered)'
-          : 'editor configured — WARNING: could not template default_locale; editor opens in English',
-      );
+      ok('decap-configured', 'editor configured (second build triggered)');
+      // 8a2. Editor UI language: rewrite lang.js's marker to the site language.
+      //       Best-effort — an old template without lang.js just keeps the
+      //       browser-language editor (Sveltia's own UI locale set is limited:
+      //       ja yes, zh-Hant/zh-Hans no).
+      try {
+        const langJsRes = await gh(ghT, `/repos/${login}/${slug}/contents/public/admin/lang.js`);
+        if (langJsRes.status === 200) {
+          const langJs = await langJsRes.json();
+          const seeded = b64decode(langJs.content).replace('__KANTAN_EDITOR_LANG__', lang);
+          await ghJson(ghT, `/repos/${login}/${slug}/contents/public/admin/lang.js`, {
+            method: 'PUT',
+            body: {
+              message: `chore: seed the editor UI language (${lang})`,
+              content: b64encode(seeded),
+              sha: langJs.sha,
+              branch: 'main',
+            },
+          });
+          ok('editor-lang', `editor UI language seeded (${lang})`);
+        }
+      } catch {
+        ok('editor-lang', 'editor language seed skipped — template lang.js not found');
+      }
 
       // 8b. Branded address: attach the domain to the user's Pages project
       //     (user token) + create the proxied CNAME in our zone (operator
@@ -1663,23 +1679,43 @@ async function siteVersionStatus(env, token, site) {
   // re-fetching (one fewer GitHub call per update).
   result.toTree = tplToTree;
 
-  const [siteCfgB64, fromCfgB64, toCfgB64] = await Promise.all([
+  const [siteCfgB64, fromCfgB64, toCfgB64, siteLangB64, fromLangB64, toLangB64] = await Promise.all([
     fileContentBase64(token, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
     fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, recorded),
     fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, current),
+    fileContentBase64(token, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
+    fileContentBase64(token, tplOwner, tplName, LANG_JS_PATH, recorded),
+    fileContentBase64(token, tplOwner, tplName, LANG_JS_PATH, current),
   ]);
   const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
   const fromConfig = fromCfgB64 ? b64decode(fromCfgB64) : '';
   const toConfig = toCfgB64 ? b64decode(toCfgB64) : '';
+  const siteLangJs = siteLangB64 ? b64decode(siteLangB64) : '';
+  const fromLangJs = fromLangB64 ? b64decode(fromLangB64) : '';
+  const toLangJs = toLangB64 ? b64decode(toLangB64) : '';
 
-  const fit = classifyFitness({ templateTree: tplFromTree, siteTree, templateConfigYml: fromConfig, siteConfigYml: siteConfig });
+  const fit = classifyFitness({
+    templateTree: tplFromTree,
+    siteTree,
+    templateConfigYml: fromConfig,
+    siteConfigYml: siteConfig,
+    templateLangJs: fromLangJs,
+    siteLangJs,
+  });
   result.fit = fit.clean ? 'clean' : 'dirty';
   result.drifted = fit.drifted;
 
   if (!fit.clean) return result;
 
   // Only green templates are offered; major bumps need explicit confirm.
-  result.changes = diffCoreTrees({ fromTree: tplFromTree, toTree: tplToTree, fromConfigYml: fromConfig, toConfigYml: toConfig });
+  result.changes = diffCoreTrees({
+    fromTree: tplFromTree,
+    toTree: tplToTree,
+    fromConfigYml: fromConfig,
+    toConfigYml: toConfig,
+    fromLangJs: fromLangJs,
+    toLangJs,
+  });
   // A template-add that lands on a path the user already added would overwrite
   // their file (pure additions are tolerated as clean, but the update must not
   // clobber them). Surface those collisions and block instead.
@@ -1802,6 +1838,17 @@ async function siteUpdate(request, env) {
     const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
     const toConfig = toCfgB64 ? b64decode(toCfgB64) : '';
 
+    // The site's current lang.js (its provisioned editor language) so the new
+    // template lang.js can be re-seeded with it after the update.
+    const siteLangJsB64 = await fileContentBase64(
+      wizard.t,
+      siteInfo.owner,
+      siteInfo.name,
+      LANG_JS_PATH,
+      headSha,
+    );
+    const siteLangJs = siteLangJsB64 ? b64decode(siteLangJsB64) : '';
+
     const treeEntries = [];
     for (const change of status.changes) {
       if (change.status === 'deleted') {
@@ -1811,6 +1858,9 @@ async function siteUpdate(request, env) {
       let contentBase64;
       if (change.path === CONFIG_YML_PATH) {
         contentBase64 = b64encode(reinjectConfigBackend(toConfig, siteConfig));
+      } else if (change.path === LANG_JS_PATH) {
+        const toLangJs = await fileContentBase64(wizard.t, tplOwner, tplName, LANG_JS_PATH, to);
+        contentBase64 = b64encode(reinjectEditorLang(toLangJs ? b64decode(toLangJs) : '', siteLangJs));
       } else {
         contentBase64 = await fileContentBase64(wizard.t, tplOwner, tplName, change.path, to);
       }
@@ -1906,15 +1956,19 @@ async function siteBaseline(request, env) {
       repoTree(wizard.t, siteInfo.owner, siteInfo.name, siteInfo.headSha),
       repoTree(wizard.t, tplOwner, tplName, current),
     ]);
-    const [siteCfgB64, tplCfgB64] = await Promise.all([
+    const [siteCfgB64, tplCfgB64, siteLangB64, tplLangB64] = await Promise.all([
       fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
       fileContentBase64(wizard.t, tplOwner, tplName, CONFIG_YML_PATH, current),
+      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
+      fileContentBase64(wizard.t, tplOwner, tplName, LANG_JS_PATH, current),
     ]);
     const fit = classifyFitness({
       templateTree: tplTree,
       siteTree,
       templateConfigYml: tplCfgB64 ? b64decode(tplCfgB64) : '',
       siteConfigYml: siteCfgB64 ? b64decode(siteCfgB64) : '',
+      templateLangJs: tplLangB64 ? b64decode(tplLangB64) : '',
+      siteLangJs: siteLangB64 ? b64decode(siteLangB64) : '',
     });
     if (!fit.clean) {
       return json({

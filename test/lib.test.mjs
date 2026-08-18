@@ -21,6 +21,8 @@ import {
   buildZip,
   parseZip,
   applyLangToConfig,
+  reinjectEditorLang,
+  normalizeLangJs,
 } from '../src/lib.js';
 
 test('slugifySiteName accepts simple names', () => {
@@ -244,4 +246,23 @@ test('applyLangToConfig sets site.lang and preserves the rest (bytes)', () => {
   assert.equal(out.site.lang, 'ja');
   assert.equal(out.site.title, 'My Blog');
   assert.equal(out.theme.preset, 'paper');
+});
+
+test('reinjectEditorLang seeds the template marker from the site lang.js', () => {
+  const tpl = "window.kantanSeedLocale = '__KANTAN_EDITOR_LANG__';\n// rest\n";
+  const site = "window.kantanSeedLocale = 'ja';\n// rest\n";
+  assert.equal(
+    reinjectEditorLang(tpl, site),
+    "window.kantanSeedLocale = 'ja';\n// rest\n",
+  );
+  assert.equal(reinjectEditorLang(tpl, ''), tpl, 'no site locale → template kept as-is');
+});
+
+test('normalizeLangJs collapses the seeded locale for drift comparison', () => {
+  const tpl = "window.kantanSeedLocale = '__KANTAN_EDITOR_LANG__';\n";
+  const ja = "window.kantanSeedLocale = 'ja';\n";
+  const en = "window.kantanSeedLocale = 'en';\n";
+  assert.equal(normalizeLangJs(tpl), normalizeLangJs(ja));
+  assert.equal(normalizeLangJs(ja), normalizeLangJs(en));
+  assert.notEqual(normalizeLangJs(ja), normalizeLangJs("window.kantanSeedLocale = 'ja';\n// logic changed\n"));
 });

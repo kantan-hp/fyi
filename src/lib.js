@@ -255,12 +255,30 @@ export function isUserDataPath(path) {
 /** True for the site-specific editor config, whose backend lines are re-injected. */
 export const CONFIG_YML_PATH = 'public/admin/config.yml';
 
+/** The editor-language seed, whose locale is re-injected on update. */
+export const LANG_JS_PATH = 'public/admin/lang.js';
+
+/** Re-seed the editor UI language in the template's lang.js from the site's
+ *  current lang.js (`window.kantanSeedLocale = 'X';`). The site's copy already
+ *  carries the provisioned language; the template's copy has the placeholder. */
+export function reinjectEditorLang(templateLangJs, siteLangJs) {
+  const m = String(siteLangJs || '').match(/kantanSeedLocale\s*=\s*['"]([^'"]+)['"]/);
+  if (!m) return String(templateLangJs || '');
+  return String(templateLangJs || '').replace(/__KANTAN_EDITOR_LANG__/g, m[1]);
+}
+
 /** Strip site-specific backend lines so a site's config.yml can be compared to the template's. */
 export function normalizeConfigYml(content) {
   return String(content || '')
     .split('\n')
     .filter((line) => !/^\s*(repo|base_url|auth_endpoint):/.test(line))
     .join('\n');
+}
+
+/** Normalize the editor-language seed so a site's lang.js (locale seeded) can
+ *  be compared to the template's (placeholder marker). */
+export function normalizeLangJs(content) {
+  return String(content || '').replace(/kantanSeedLocale\s*=\s*['"][^'"]*['"]/, 'kantanSeedLocale = "<locale>"');
 }
 
 /** Turn a GitHub tree (array of {path, type, sha, mode}) into {path: sha} for blobs. */
@@ -279,12 +297,12 @@ export function treeToBlobMap(tree) {
  * tolerated; modifications or deletions of core files mark the site dirty.
  * config.yml is compared modulo its site-specific backend lines.
  */
-export function classifyFitness({ templateTree, siteTree, templateConfigYml, siteConfigYml }) {
+export function classifyFitness({ templateTree, siteTree, templateConfigYml, siteConfigYml, templateLangJs, siteLangJs }) {
   const tpl = treeToBlobMap(templateTree);
   const site = treeToBlobMap(siteTree);
   const drifted = [];
   for (const [path, sha] of Object.entries(tpl)) {
-    if (isUserDataPath(path) || path === CONFIG_YML_PATH) continue;
+    if (isUserDataPath(path) || path === CONFIG_YML_PATH || path === LANG_JS_PATH) continue;
     if (!(path in site)) {
       drifted.push({ path, kind: 'deleted' });
     } else if (site[path] !== sha) {
@@ -294,6 +312,9 @@ export function classifyFitness({ templateTree, siteTree, templateConfigYml, sit
   if (normalizeConfigYml(templateConfigYml) !== normalizeConfigYml(siteConfigYml)) {
     drifted.push({ path: CONFIG_YML_PATH, kind: 'modified' });
   }
+  if (normalizeLangJs(templateLangJs) !== normalizeLangJs(siteLangJs)) {
+    drifted.push({ path: LANG_JS_PATH, kind: 'modified' });
+  }
   return { clean: drifted.length === 0, drifted };
 }
 
@@ -302,13 +323,13 @@ export function classifyFitness({ templateTree, siteTree, templateConfigYml, sit
  * engine. User data is never included. config.yml is included as modified when
  * its non-backend content changed.
  */
-export function diffCoreTrees({ fromTree, toTree, fromConfigYml, toConfigYml }) {
+export function diffCoreTrees({ fromTree, toTree, fromConfigYml, toConfigYml, fromLangJs, toLangJs }) {
   const from = treeToBlobMap(fromTree);
   const to = treeToBlobMap(toTree);
   const changes = [];
   const allPaths = new Set([...Object.keys(from), ...Object.keys(to)]);
   for (const path of allPaths) {
-    if (isUserDataPath(path) || path === CONFIG_YML_PATH) continue;
+    if (isUserDataPath(path) || path === CONFIG_YML_PATH || path === LANG_JS_PATH) continue;
     const fromSha = from[path];
     const toSha = to[path];
     if (fromSha && !toSha) changes.push({ path, status: 'deleted' });
@@ -317,6 +338,9 @@ export function diffCoreTrees({ fromTree, toTree, fromConfigYml, toConfigYml }) 
   }
   if (normalizeConfigYml(fromConfigYml) !== normalizeConfigYml(toConfigYml)) {
     changes.push({ path: CONFIG_YML_PATH, status: 'modified' });
+  }
+  if (normalizeLangJs(fromLangJs) !== normalizeLangJs(toLangJs)) {
+    changes.push({ path: LANG_JS_PATH, status: 'modified' });
   }
   return changes;
 }
