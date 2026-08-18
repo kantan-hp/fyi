@@ -23,6 +23,8 @@ import {
   applyLangToConfig,
   reinjectEditorLang,
   normalizeLangJs,
+  classifyFitness,
+  diffCoreTrees,
 } from '../src/lib.js';
 
 test('slugifySiteName accepts simple names', () => {
@@ -265,4 +267,40 @@ test('normalizeLangJs collapses the seeded locale for drift comparison', () => {
   assert.equal(normalizeLangJs(tpl), normalizeLangJs(ja));
   assert.equal(normalizeLangJs(ja), normalizeLangJs(en));
   assert.notEqual(normalizeLangJs(ja), normalizeLangJs("window.kantanSeedLocale = 'ja';\n// logic changed\n"));
+});
+
+test('lang.js fitness/diff: missing template lang.js is not drift, dropping it is a deletion', async () => {
+  const tpl = "window.kantanSeedLocale = '__KANTAN_EDITOR_LANG__';\n";
+  const ja = "window.kantanSeedLocale = 'ja';\n";
+  // Template predates lang.js (missing) + site has one → clean (site's own concern).
+  const fit = classifyFitness({
+    templateTree: [],
+    siteTree: [],
+    templateConfigYml: 'a', siteConfigYml: 'a',
+    templateLangJs: null, siteLangJs: ja,
+  });
+  assert.equal(fit.clean, true);
+  assert.deepEqual(fit.drifted, []);
+  // Template has lang.js, site differs → dirty.
+  const dirty = classifyFitness({
+    templateTree: [], siteTree: [],
+    templateConfigYml: 'a', siteConfigYml: 'a',
+    templateLangJs: tpl, siteLangJs: 'window.kantanSeedLocale = "ja";\n// logic changed\n',
+  });
+  assert.equal(dirty.clean, false);
+  assert.ok(dirty.drifted.some((d) => d.path === 'public/admin/lang.js'));
+  // Template from→to drops lang.js → deletion.
+  const changes = diffCoreTrees({
+    fromTree: [], toTree: [],
+    fromConfigYml: 'a', toConfigYml: 'a',
+    fromLangJs: tpl, toLangJs: null,
+  });
+  assert.ok(changes.some((c) => c.path === 'public/admin/lang.js' && c.status === 'deleted'));
+  // Neither side has lang.js → no change.
+  const none = diffCoreTrees({
+    fromTree: [], toTree: [],
+    fromConfigYml: 'a', toConfigYml: 'a',
+    fromLangJs: null, toLangJs: null,
+  });
+  assert.ok(!none.some((c) => c.path === 'public/admin/lang.js'));
 });

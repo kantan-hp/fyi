@@ -1872,7 +1872,13 @@ async function siteUpdate(request, env) {
         contentBase64 = b64encode(reinjectConfigBackend(toConfig, siteConfig));
       } else if (change.path === LANG_JS_PATH) {
         const toLangJs = await fileContentBase64Optional(wizard.t, tplOwner, tplName, LANG_JS_PATH, to);
-        contentBase64 = b64encode(reinjectEditorLang(toLangJs ? b64decode(toLangJs) : '', siteLangJs));
+        if (!toLangJs) {
+          // Defensive: the template dropped lang.js — delete the site's copy
+          // rather than write a zero-byte file.
+          treeEntries.push({ path: change.path, mode: '100644', type: 'blob', sha: null });
+          continue;
+        }
+        contentBase64 = b64encode(reinjectEditorLang(b64decode(toLangJs), siteLangJs));
       } else {
         contentBase64 = await fileContentBase64(wizard.t, tplOwner, tplName, change.path, to);
       }

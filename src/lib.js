@@ -312,7 +312,10 @@ export function classifyFitness({ templateTree, siteTree, templateConfigYml, sit
   if (normalizeConfigYml(templateConfigYml) !== normalizeConfigYml(siteConfigYml)) {
     drifted.push({ path: CONFIG_YML_PATH, kind: 'modified' });
   }
-  if (normalizeLangJs(templateLangJs) !== normalizeLangJs(siteLangJs)) {
+  // lang.js is only compared when the template side ships it — a template
+  // version predating (or dropping) lang.js means the site's copy (if any) is
+  // its own concern, never drift.
+  if (templateLangJs && normalizeLangJs(templateLangJs) !== normalizeLangJs(siteLangJs)) {
     drifted.push({ path: LANG_JS_PATH, kind: 'modified' });
   }
   return { clean: drifted.length === 0, drifted };
@@ -339,7 +342,12 @@ export function diffCoreTrees({ fromTree, toTree, fromConfigYml, toConfigYml, fr
   if (normalizeConfigYml(fromConfigYml) !== normalizeConfigYml(toConfigYml)) {
     changes.push({ path: CONFIG_YML_PATH, status: 'modified' });
   }
-  if (normalizeLangJs(fromLangJs) !== normalizeLangJs(toLangJs)) {
+  if (fromLangJs && !toLangJs) {
+    // The template dropped lang.js between from→to — the site's copy goes too.
+    changes.push({ path: LANG_JS_PATH, status: 'deleted' });
+  } else if (!fromLangJs && toLangJs) {
+    changes.push({ path: LANG_JS_PATH, status: 'added' });
+  } else if (fromLangJs && normalizeLangJs(fromLangJs) !== normalizeLangJs(toLangJs)) {
     changes.push({ path: LANG_JS_PATH, status: 'modified' });
   }
   return changes;
