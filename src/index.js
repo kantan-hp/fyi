@@ -1587,6 +1587,17 @@ async function fileContentBase64(token, owner, name, path, ref) {
   return data.content || null;
 }
 
+/** fileContentBase64 that treats a missing file (404) as absent, not an error.
+ *  Used for files that only exist in newer template versions (e.g. lang.js), so
+ *  legacy sites keep working. Mirrors provision()'s `status === 200` guard. */
+async function fileContentBase64Optional(token, owner, name, path, ref) {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  const res = await gh(token, `/repos/${owner}/${name}/contents/${encoded}?ref=${ref}`);
+  if (res.status !== 200) return null;
+  const data = await res.json();
+  return data.content || null;
+}
+
 /** Resolve a site's repo to {owner, name, defaultBranch, headSha}. */
 async function siteRepoInfo(token, repo) {
   const [owner, name] = repo.split('/');
@@ -1683,9 +1694,9 @@ async function siteVersionStatus(env, token, site) {
     fileContentBase64(token, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
     fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, recorded),
     fileContentBase64(token, tplOwner, tplName, CONFIG_YML_PATH, current),
-    fileContentBase64(token, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
-    fileContentBase64(token, tplOwner, tplName, LANG_JS_PATH, recorded),
-    fileContentBase64(token, tplOwner, tplName, LANG_JS_PATH, current),
+    fileContentBase64Optional(token, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
+    fileContentBase64Optional(token, tplOwner, tplName, LANG_JS_PATH, recorded),
+    fileContentBase64Optional(token, tplOwner, tplName, LANG_JS_PATH, current),
   ]);
   const siteConfig = siteCfgB64 ? b64decode(siteCfgB64) : '';
   const fromConfig = fromCfgB64 ? b64decode(fromCfgB64) : '';
@@ -1839,8 +1850,9 @@ async function siteUpdate(request, env) {
     const toConfig = toCfgB64 ? b64decode(toCfgB64) : '';
 
     // The site's current lang.js (its provisioned editor language) so the new
-    // template lang.js can be re-seeded with it after the update.
-    const siteLangJsB64 = await fileContentBase64(
+    // template lang.js can be re-seeded with it after the update. Optional:
+    // a legacy site predating lang.js has none (treated as '').
+    const siteLangJsB64 = await fileContentBase64Optional(
       wizard.t,
       siteInfo.owner,
       siteInfo.name,
@@ -1859,7 +1871,7 @@ async function siteUpdate(request, env) {
       if (change.path === CONFIG_YML_PATH) {
         contentBase64 = b64encode(reinjectConfigBackend(toConfig, siteConfig));
       } else if (change.path === LANG_JS_PATH) {
-        const toLangJs = await fileContentBase64(wizard.t, tplOwner, tplName, LANG_JS_PATH, to);
+        const toLangJs = await fileContentBase64Optional(wizard.t, tplOwner, tplName, LANG_JS_PATH, to);
         contentBase64 = b64encode(reinjectEditorLang(toLangJs ? b64decode(toLangJs) : '', siteLangJs));
       } else {
         contentBase64 = await fileContentBase64(wizard.t, tplOwner, tplName, change.path, to);
@@ -1959,8 +1971,8 @@ async function siteBaseline(request, env) {
     const [siteCfgB64, tplCfgB64, siteLangB64, tplLangB64] = await Promise.all([
       fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, CONFIG_YML_PATH, siteInfo.headSha),
       fileContentBase64(wizard.t, tplOwner, tplName, CONFIG_YML_PATH, current),
-      fileContentBase64(wizard.t, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
-      fileContentBase64(wizard.t, tplOwner, tplName, LANG_JS_PATH, current),
+      fileContentBase64Optional(wizard.t, siteInfo.owner, siteInfo.name, LANG_JS_PATH, siteInfo.headSha),
+      fileContentBase64Optional(wizard.t, tplOwner, tplName, LANG_JS_PATH, current),
     ]);
     const fit = classifyFitness({
       templateTree: tplTree,
