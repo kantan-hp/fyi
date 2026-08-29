@@ -176,3 +176,45 @@ test('delete action is danger-styled and confirms by site name (slug)', () => {
   // The confirm prompt asks for the site name, not the address.
   assert.ok(app.includes('"deleteTypeName"'), 'site-name confirm string is embedded');
 });
+
+test('appPage escapes a hostile D1 row (attribute breakout is inert)', () => {
+  // A hand-edited D1 row or a future validation gap must not become XSS: every
+  // s.origin / s.repo / s.project interpolation is esc()'d.
+  const evil = '"><img src=x onerror=alert(1)>';
+  const evilOrigin = 'https://' + evil + '.pages.dev';
+  const app = appPage(
+    {
+      email: 'a@b.co',
+      sites: [
+        { origin: evilOrigin, repo: 'me/' + evil, project: evil, created_at: '2026-08-01' },
+      ],
+      hasSites: true,
+    },
+    {},
+  );
+  assert.ok(!app.includes('<img src=x onerror=alert(1)>'), 'raw payload must not appear');
+  assert.ok(!app.includes('onerror=alert(1)>'), 'no unescaped attribute breakout');
+  assert.ok(app.includes('&quot;&gt;&lt;img'), 'payload is entity-escaped');
+  // The data-* hooks (used by querySelector with quoted values in the client
+  // script) carry the escaped form only: no raw < or " can survive inside the
+  // attribute value, so breakout is impossible even if the rest of the payload
+  // (e.g. onerror=) stays literal — it is inert inside a quoted attribute.
+  assert.ok(!app.match(/data-(origin|detail|more)="[^"]*(?:<|\\")/), 'data attrs contain no raw < or \" char');
+});
+
+test('loginPage escapes a server-supplied error string', () => {
+  const evil = '<script>alert(1)</script>';
+  const p = loginPage({ error: evil }, {});
+  assert.ok(!p.includes('<script>alert(1)</script>'), 'raw error must not appear');
+  assert.ok(p.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'error is entity-escaped');
+});
+
+test('i18nScript escapes < > and line separators in the string table', () => {
+  // A translation containing </script> must not break out of the inline block.
+  const p = loginPage({}, {});
+  assert.ok(p.includes('window.I18N = {'), 'i18n blob embedded');
+  assert.ok(p.includes('<script>window.I18N'), 'inline i18n script present');
+  // No raw "</scr" + "ipt>" sequence may appear inside the JSON payload.
+  const blob = p.split('window.I18N = ')[1].split(';</script>')[0];
+  assert.ok(!blob.includes('</script'), 'JSON payload cannot close the script');
+});

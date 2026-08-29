@@ -146,12 +146,16 @@ export const LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAC2VBMVEX
 export const LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="32" height="32" viewBox="0 0 32 32"><title>kantan</title><path fill="#f16c3d" d="M0,0h32v1h-32zM0,1h32v1h-32zM0,2h32v1h-32zM0,3h32v1h-32zM0,4h15v1h-15zM17,4h15v1h-15zM0,5h15v1h-15zM17,5h15v1h-15zM0,6h6v1h-6zM7,6h8v1h-8zM16,6h16v1h-16zM0,7h6v1h-6zM8,7h7v1h-7zM16,7h8v1h-8zM26,7h6v1h-6zM0,8h7v1h-7zM9,8h14v1h-14zM25,8h7v1h-7zM0,9h8v1h-8zM10,9h12v1h-12zM24,9h8v1h-8zM0,10h13v1h-13zM20,10h12v1h-12zM0,11h11v1h-11zM21,11h11v1h-11zM0,12h10v1h-10zM13,12h6v1h-6zM22,12h10v1h-10zM0,13h10v1h-10zM12,13h8v1h-8zM22,13h10v1h-10zM0,14h9v1h-9zM11,14h4v1h-4zM18,14h2v1h-2zM23,14h9v1h-9zM0,15h3v1h-3zM7,15h2v1h-2zM11,15h3v1h-3zM18,15h3v1h-3zM23,15h2v1h-2zM29,15h3v1h-3zM0,16h3v1h-3zM7,16h2v1h-2zM11,16h2v1h-2zM16,16h1v1h-1zM18,16h3v1h-3zM23,16h3v1h-3zM29,16h3v1h-3zM0,17h9v1h-9zM11,17h2v1h-2zM15,17h5v1h-5zM22,17h10v1h-10zM0,18h9v1h-9zM11,18h2v1h-2zM16,18h3v1h-3zM22,18h10v1h-10zM0,19h10v1h-10zM12,19h2v1h-2zM21,19h11v1h-11zM0,20h10v1h-10zM12,20h3v1h-3zM19,20h13v1h-13zM0,21h8v1h-8zM9,21h2v1h-2zM13,21h19v1h-19zM0,22h7v1h-7zM9,22h3v1h-3zM15,22h4v1h-4zM21,22h2v1h-2zM25,22h7v1h-7zM0,23h6v1h-6zM8,23h5v1h-5zM20,23h4v1h-4zM26,23h6v1h-6zM0,24h6v1h-6zM7,24h18v1h-18zM26,24h6v1h-6zM0,25h32v1h-32zM0,26h15v1h-15zM17,26h15v1h-15zM0,27h15v1h-15zM17,27h15v1h-15zM0,28h15v1h-15zM17,28h15v1h-15zM0,29h32v1h-32zM0,30h32v1h-32zM0,31h32v1h-32z"/><path fill="#ffffff" d="M15,4h2v1h-2zM15,5h2v1h-2zM6,6h1v1h-1zM15,6h1v1h-1zM6,7h2v1h-2zM15,7h1v1h-1zM24,7h2v1h-2zM7,8h2v1h-2zM23,8h2v1h-2zM8,9h2v1h-2zM22,9h2v1h-2zM13,10h7v1h-7zM11,11h10v1h-10zM10,12h3v1h-3zM19,12h3v1h-3zM10,13h2v1h-2zM20,13h2v1h-2zM9,14h2v1h-2zM15,14h3v1h-3zM20,14h3v1h-3zM3,15h4v1h-4zM9,15h2v1h-2zM14,15h4v1h-4zM21,15h2v1h-2zM25,15h4v1h-4zM3,16h4v1h-4zM9,16h2v1h-2zM13,16h3v1h-3zM17,16h1v1h-1zM21,16h2v1h-2zM26,16h3v1h-3zM9,17h2v1h-2zM13,17h2v1h-2zM20,17h2v1h-2zM9,18h2v1h-2zM13,18h3v1h-3zM19,18h3v1h-3zM10,19h2v1h-2zM14,19h7v1h-7zM10,20h2v1h-2zM15,20h4v1h-4zM8,21h1v1h-1zM11,21h2v1h-2zM7,22h2v1h-2zM12,22h3v1h-3zM19,22h2v1h-2zM23,22h2v1h-2zM6,23h2v1h-2zM13,23h7v1h-7zM24,23h2v1h-2zM6,24h1v1h-1zM25,24h1v1h-1zM15,26h2v1h-2zM15,27h2v1h-2zM15,28h2v1h-2z"/></svg>';
 
 function shell(title, body, extraHead = '', { locale = 'en', pathname = '/' } = {}) {
+  // `title` is escaped HERE (the one HTML sink in <title>); callers pass raw
+  // text. `body` is pre-built markup — every caller must escape its dynamic
+  // interpolations itself (messagePage does; appPage does since the 2026-08
+  // review). Never interpolate untrusted strings into `body`.
   return `<!doctype html>
 <html lang="${locale}" data-panel-lang="${locale}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${title} — kantan</title>
+<title>${esc(title)} — kantan</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,${LOGO_B64}" />
 <style>${BASE}</style>
 ${extraHead}
@@ -200,11 +204,17 @@ ${body}
 }
 
 // Embed the current locale's string table for the page's client-side script.
-// JSON.stringify does not escape `<`, so a future translation containing
-// `</script>` would terminate the block and run arbitrary JS — escape `<` (and
-// U+2028/U+2029) so the payload can never break out of the inline <script>.
+// JSON.stringify does not escape `<`, `>` U+2028 or U+2029. `<` would close the
+// inline <script> from inside a JSON string; U+2028/U+2029 are valid JS string
+// characters but invalid JSON tokens that break JSON.parse in non-browser
+// contexts (and older engines treated them as line terminators). Escape all of
+// them so the payload can never break out of the inline script.
 function i18nScript(locale) {
-  const json = JSON.stringify(stringsFor(locale)).replace(/</g, '\\u003c');
+  const json = JSON.stringify(stringsFor(locale))
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
   return `<script>window.I18N = ${json};</script>`;
 }
 
@@ -212,8 +222,9 @@ function turnstileWidget(sitekey) {
   if (!sitekey) return '';
   // appearance=interaction-only: hidden by default; only rendered when
   // Cloudflare decides an interaction (challenge) is required. onTurnstileExpired
-  // re-runs the check when the 300-s token lapses.
-  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-appearance="interaction-only" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-expired-callback="onTurnstileExpired" data-theme="light"></div>';
+  // re-runs the check when the 300-s token lapses. The sitekey is operator
+  // config (env), escaped anyway so a bad value can't break the attribute.
+  return '<div class="cf-turnstile" data-sitekey="' + esc(sitekey) + '" data-appearance="interaction-only" data-callback="onTurnstileSuccess" data-error-callback="onTurnstileError" data-expired-callback="onTurnstileExpired" data-theme="light"></div>';
 }
 
 function turnstileScript(sitekey) {
@@ -277,7 +288,7 @@ export function loginPage({ error } = {}, { turnstileSitekey, locale = 'en', pat
           ${turnstileWidget(turnstileSitekey)}
           <button class="btn" type="submit">${t(locale, 'emailMeLink')}</button>
         </form>
-        <div class="status" id="status">${error ? `<span class="err">${error}</span>` : ''}</div>
+        <div class="status" id="status">${error ? `<span class="err">${esc(error)}</span>` : ''}</div>
       </div>
     </main>
     <script>
@@ -358,7 +369,7 @@ function esc(s) {
 
 export function messagePage(title, text, { locale = 'en', pathname = '/' } = {}) {
   return shell(
-    esc(title),
+    title, // shell() escapes its title internally — pass the raw string
     `<main class="wrap"><div class="card">
       <h2>${esc(title)}</h2>
       <p>${esc(text)}</p>
@@ -379,20 +390,25 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
             ${sites
               .map(
                 (s) =>
-                  `<tr class="site-row" data-origin="${s.origin}">
-                    <td><a href="${s.origin}" target="_blank" rel="noopener" class="site-link">${s.origin.replace('https://', '')}</a>
-                      <div class="muted" style="font-size:.72rem; margin-top:.1rem">${s.repo}</div>
+                  // s.origin / s.repo / s.project come from D1 and feed HTML
+                  // attributes and text. They are validated at provisioning
+                  // (origin is https:-constrained, repo/project derive from the
+                  // slug), but esc() everywhere anyway — a future validation
+                  // gap or hand-edited row must not become XSS (2026-08 review).
+                  `<tr class="site-row" data-origin="${esc(s.origin)}">
+                    <td><a href="${esc(s.origin)}" target="_blank" rel="noopener" class="site-link">${esc(s.origin.replace('https://', ''))}</a>
+                      <div class="muted" style="font-size:.72rem; margin-top:.1rem">${esc(s.repo)}</div>
                     </td>
                     <td class="muted">${new Date(s.created_at).toLocaleDateString(locale)}</td>
-                    <td style="text-align:right; white-space:nowrap"><button class="btn info-glyph" title="${t(locale, 'moreInfo')}" aria-label="${t(locale, 'moreInfo')}" data-more="${s.origin}">i</button></td>
+                    <td style="text-align:right; white-space:nowrap"><button class="btn info-glyph" title="${t(locale, 'moreInfo')}" aria-label="${t(locale, 'moreInfo')}" data-more="${esc(s.origin)}">i</button></td>
                   </tr>
-                  <tr class="site-detail hidden" data-detail="${s.origin}">
+                  <tr class="site-detail hidden" data-detail="${esc(s.origin)}">
                     <td colspan="3">
                       <div class="detail-wrap">
-                        <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${s.origin}/admin" target="_blank" rel="noopener">${s.origin.replace('https://', '')}/admin</a></div>
-                        <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${s.origin}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${s.origin}">${t(locale, 'check')}</button></span></div>
-                        <div class="detail-reason" data-reason="${s.origin}"></div>
-                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-export="${s.origin}">${t(locale, 'exportContent')}</button> <button class="btn danger" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${s.origin}" data-name="${s.project}">${t(locale, 'deleteSite')}</button></div>
+                        <div class="detail-row"><span class="muted">${t(locale, 'editorLabel')}</span> <a href="${esc(s.origin)}/admin" target="_blank" rel="noopener">${esc(s.origin.replace('https://', ''))}/admin</a></div>
+                        <div class="detail-row"><span class="muted">${t(locale, 'upgradable')}</span> <span class="upg" data-upg="${esc(s.origin)}"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="${esc(s.origin)}">${t(locale, 'check')}</button></span></div>
+                        <div class="detail-reason" data-reason="${esc(s.origin)}"></div>
+                        <div class="detail-row"><button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-export="${esc(s.origin)}">${t(locale, 'exportContent')}</button> <button class="btn danger" style="padding:.3rem .7rem; font-size:.8rem" data-delete="${esc(s.origin)}" data-name="${esc(s.project)}">${t(locale, 'deleteSite')}</button></div>
                       </div>
                     </td>
                   </tr>`,
@@ -490,7 +506,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         <label style="font-size:.85rem; color:#555; display:block">${t(locale, 'contentFromSite')}</label>
         <select id="content-source" style="width:100%; font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid #d4d2cd; border-radius:10px">
           <option value="">${t(locale, 'contentNone')}</option>
-          ${sites.map((s) => `<option value="${s.origin}">${s.origin.replace('https://', '')}</option>`).join('')}
+          ${sites.map((s) => `<option value="${esc(s.origin)}">${esc(s.origin.replace('https://', ''))}</option>`).join('')}
         </select>
         <label class="muted" style="display:block; font-size:.75rem">${t(locale, 'contentUploadBundle')}</label>
         <input type="file" id="content-bundle" accept=".zip" style="width:100%" />
@@ -1055,7 +1071,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const data = await apiPost('/api/sites/update', { origin, confirmMajor: !!major });
         if (!data) return;
         if (data.ok) {
-          openModal(window.I18N.updateComplete, '<p>' + window.I18N.updateCompleteBody.replace('{to}', esc(shortSha(data.to))).replace('{n}', String(data.changed)) + '</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">' + esc(window.I18N.viewBuild) + '</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + esc(window.I18N.done) + '</button>');
+          openModal(window.I18N.updateComplete, '<p>' + window.I18N.updateCompleteBody.replace('{to}', esc(shortSha(data.to))).replace('{n}', esc(String(data.changed)) ) + '</p><p><a href="' + esc(data.deployUrl) + '" target="_blank" rel="noopener">' + esc(window.I18N.viewBuild) + '</a></p>', '<button class="btn" onclick="location.href=\\'/app\\'">' + esc(window.I18N.done) + '</button>');
           renderCheck(origin, { upgradeable: 'no' });
         } else {
           let body = '<p class="err">' + esc(data.error || window.I18N.updateFailed) + '</p>';

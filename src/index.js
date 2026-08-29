@@ -284,9 +284,22 @@ function panelBase(env, request) {
 // ---------------------------------------------------------------------------
 // Sessions
 
+// Verify a signed payload against the CURRENT SESSION_SECRET, falling back to
+// SESSION_SECRET_PREVIOUS during a rotation window. Signing always uses the
+// current secret, so bumping SESSION_SECRET (with the old value parked in
+// SESSION_SECRET_PREVIOUS) is the session-revocation primitive: every
+// outstanding cookie signed with the old secret keeps working until the
+// previous var is dropped — see README "Rotating SESSION_SECRET".
+async function verifyAnySecret(env, token) {
+  return (
+    (await verifyPayload(env.SESSION_SECRET, token)) ||
+    (env.SESSION_SECRET_PREVIOUS ? verifyPayload(env.SESSION_SECRET_PREVIOUS, token) : null)
+  );
+}
+
 async function getSession(request, env) {
   const cookies = parseCookies(request.headers.get('cookie'));
-  const s = await verifyPayload(env.SESSION_SECRET, cookies[SESSION_COOKIE]);
+  const s = await verifyAnySecret(env, cookies[SESSION_COOKIE]);
   if (!s || !s.sub) return null;
   if (Date.now() - (s.ts || 0) > SESSION_MAX_AGE_MS) return null;
   return s;
@@ -294,7 +307,7 @@ async function getSession(request, env) {
 
 async function getWizard(request, env) {
   const cookies = parseCookies(request.headers.get('cookie'));
-  const w = await verifyPayload(env.SESSION_SECRET, cookies[WIZARD_COOKIE]);
+  const w = await verifyAnySecret(env, cookies[WIZARD_COOKIE]);
   if (!w || !w.t || !w.login) return null;
   if (Date.now() - (w.ts || 0) > WIZARD_MAX_AGE_MS) return null;
   return w;
@@ -1471,7 +1484,58 @@ async function provision(request, env) {
           body: { name: customDomain.replace(/^https:\/\//, '') },
         });
         created.customDomain = true;
-        ok('custom-domain', `${customDomain} attached — create a CNAME at your registrar pointing to ${slug}.pages.dev`);
+        // Activation parity with branded (8b): poll briefly so a domain that
+        // validates fast (DNS already pointing) reports "active" instead of a
+        // permanently "pending" step. Failures surface honestly; the deploy is
+        // not blocked by the domain lifecycle.
+        let customDomainStatus = 'pending';
+        try {
+          for (let i = 0; i < 8 && customDomainStatus !== 'active'; i++) {
+            const dom = await cf(cfToken, `/accounts/${accountId}/pages/projects/${slug}/domains/${customDomain.replace(/^https:\/\//, '')}`);
+            customDomainStatus = (dom && dom.status) || 'pending';
+            if (customDomainStatus !== 'active') await sleep(2000);
+          }
+        } catch {
+          // the deploy is not blocked by the domain lifecycle; report pending
+        }
+        if (customDomainStatus === 'active') {
+          ok('custom-domain', `${customDomain} active`);
+        } else if (customDomainStatus === 'error' || customDomainStatus === 'blocked' || customDomainStatus === 'deactivated') {
+          fail('custom-domain', `${customDomain} could not be validated (${customDomainStatus}) — create a CNAME at your registrar pointing to ${slug}.pages.dev, then retry from the panel`);
+        } else {
+          ok('custom-domain', `${customDomain} pending — create a CNAME at your registrar pointing to ${slug}.pages.dev; it activates once Cloudflare validates the DNS records`);
+        }
+
+        // Canonical freshness (F5): PUBLIC_SITE_URL was seeded at step 7 with
+        // the pages.dev origin (custom domains don't exist yet at that point),
+        // so once the user attaches one the build-time canonical would stay
+        // stale forever. Update BOTH canonical sources for the next build:
+        // the repo variable (what deploy.yml exports, wins in astro.config)
+        // and site.url in src/config.json (editor-visible, survives variable
+        // loss). Best-effort — a failed write is reported, not fatal; the
+        // custom domain still activates and serves.
+        try {
+          await ghJson(ghT, `/repos/${login}/${slug}/actions/variables/PUBLIC_SITE_URL`, {
+            method: 'PATCH',
+            body: { name: 'PUBLIC_SITE_URL', value: customDomain },
+          });
+          const cfgRes = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
+          const config = JSON.parse(b64decode(cfgRes.content));
+          if (config && config.site) {
+            config.site.url = customDomain;
+            await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
+              method: 'PUT',
+              body: {
+                message: 'Set site.url to the attached custom domain',
+                content: b64encode(JSON.stringify(config, null, 2) + '\n'),
+                sha: cfgRes.sha,
+              },
+            });
+          }
+          ok('canonical-updated', `canonical URL set to ${customDomain} (takes effect on the next deploy)`);
+        } catch (e) {
+          fail('canonical-updated', `could not update the repo canonical to ${customDomain} (${e.message}) — public_site_url/pages.dev stays until it is fixed`);
+        }
       }
 
       // 9. Register the site in D1 (drives the site list and the editor origin

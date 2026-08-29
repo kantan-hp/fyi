@@ -1,0 +1,61 @@
+# Auto-deploy the panel Worker on every push to main.
+#
+# CI (ci.yml) runs tests on PRs; this workflow re-runs the suite as a deploy
+# gate, then deploys. Manual deploys from the working tree use the same
+# command with the token from .env:
+#   set -a; . ./.env; set +a; npm run deploy
+#
+# CLOUDFLARE_API_TOKEN is a repo secret — an API token with Workers Scripts:
+# Edit on the kantan-hp.fyi zone's account. Without it (forks, before the
+# operator sets it up) the workflow exits early with a clear skip message
+# instead of failing on missing credentials.
+
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Check for deploy credentials
+        id: gate
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "No CLOUDFLARE_API_TOKEN secret — skipping worker deploy."
+            echo "(Deploy manually with: set -a; . ./.env; set +a; npm run deploy)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: steps.gate.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Test (deploy gate)
+        if: steps.gate.outputs.skip != 'true'
+        run: npm test
+
+      - name: Deploy to Cloudflare Workers
+        if: steps.gate.outputs.skip != 'true'
+        run: npx wrangler deploy
