@@ -176,3 +176,58 @@ test('delete action is danger-styled and confirms by site name (slug)', () => {
   // The confirm prompt asks for the site name, not the address.
   assert.ok(app.includes('"deleteTypeName"'), 'site-name confirm string is embedded');
 });
+
+test('appPage escapes a hostile D1 row (attribute breakout is inert)', () => {
+  // A hand-edited D1 row or a future validation gap must not become XSS: every
+  // s.origin / s.repo / s.project interpolation is esc()'d.
+  const evil = '"><img src=x onerror=alert(1)>';
+  const evilOrigin = 'https://' + evil + '.pages.dev';
+  const app = appPage(
+    {
+      email: 'a@b.co',
+      sites: [
+        { origin: evilOrigin, repo: 'me/' + evil, project: evil, created_at: '2026-08-01' },
+      ],
+      hasSites: true,
+    },
+    {},
+  );
+  assert.ok(!app.includes('<img src=x onerror=alert(1)>'), 'raw payload must not appear');
+  assert.ok(!app.includes('onerror=alert(1)>'), 'no unescaped attribute breakout');
+  assert.ok(app.includes('&quot;&gt;&lt;img'), 'payload is entity-escaped');
+  // The data-* hooks (used by querySelector with quoted values in the client
+  // script) carry the escaped form only: no raw < or " can survive inside the
+  // attribute value, so breakout is impossible even if the rest of the payload
+  // (e.g. onerror=) stays literal — it is inert inside a quoted attribute.
+  assert.ok(!app.match(/data-(origin|detail|more)="[^"]*(?:<|\\")/), 'data attrs contain no raw < or \" char');
+});
+
+test('loginPage escapes a server-supplied error string', () => {
+  const evil = '<script>alert(1)</script>';
+  const p = loginPage({ error: evil }, {});
+  assert.ok(!p.includes('<script>alert(1)</script>'), 'raw error must not appear');
+  assert.ok(p.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'error is entity-escaped');
+});
+
+test('i18nScript escapes < > and line separators in the string table', () => {
+  // The blob is JSON.stringify + (<, >, U+2028, U+2029) escaping of the string
+  // table. `>` must be escaped too: without it the known `<name>` translations
+  // render raw inside the inline script, and any future translation gains a
+  // second `<`-kill layer. Assert against KNOWN table content so removing any
+  // of the replaces fails this test.
+  const p = loginPage({}, {});
+  assert.ok(p.includes('window.I18N = {'), 'i18n blob embedded');
+  assert.ok(p.includes('<script>window.I18N'), 'inline i18n script present');
+  const blob = p.split('window.I18N = ')[1].split(';</script>')[0];
+  // JSON.stringify alone emits literal < > : the replace chain must remove
+  // every one of them, so the payload contains NO raw < or > at all.
+  assert.ok(!blob.includes('<'), 'no raw < in the payload (escapes </script>)');
+  assert.ok(!blob.includes('>'), 'no raw > in the payload');
+  // Known translations containing < > appear only in escaped form.
+  assert.ok(blob.includes('\\u003cname\\u003e'), '<name> is \\u003cname\\u003e in the payload');
+  // U+2028/U+2029 escape to their literal \u2028/\u2029 forms, never raw.
+  assert.ok(!/[\u2028\u2029]/.test(blob), 'no raw U+2028/U+2029 in the payload');
+  // And the whole thing must parse back to the real string table.
+  const parsed = JSON.parse(blob);
+  assert.equal(parsed.assignBranded, 'Assign me <name>.kantan-hp.fyi too');
+});

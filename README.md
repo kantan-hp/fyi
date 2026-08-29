@@ -94,6 +94,31 @@ Prereqs: Node 22+, a Cloudflare account, and `kantan-hp` access.
      worker's `redirect_uri` is derived from the request origin.
 6. **Deploy**: `npm run deploy` (routes `kantan-hp.fyi/*` to the worker).
 
+### Deploying (CI + manual)
+
+Pushes to `main` auto-deploy: `.github/workflows/deploy.yml` re-runs the test
+suite as a gate, then `npx wrangler deploy`. It needs the `CLOUDFLARE_API_TOKEN`
+repo secret (one time):
+
+```sh
+# from a shell with the token in .env
+env -u GH_TOKEN gh secret set CLOUDFLARE_API_TOKEN -R kantan-hp/fyi < <(grep '^CLOUDFLARE_API_TOKEN=' .env | cut -d= -f2-)
+```
+
+Manual deploy from the working tree (uses `.env`, same result):
+
+```sh
+set -a; . ./.env; set +a; npm run deploy
+```
+
+Deploying is NOT part of CI — CI only tests. If `main` moved and the live panel
+diverged, deploy (either path) and verify:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://kantan-hp.fyi/        # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://kantan-hp.fyi/api/me  # 401
+```
+
 For local development: `cp .dev.vars.example .dev.vars`, fill it in, `npm run dev`.
 Without `RESEND_API_KEY` the login page prints the magic link on screen instead of
 emailing it, so the whole flow is testable locally with zero setup. That fallback
@@ -101,6 +126,34 @@ is deliberately gated to development: it only fires when the mail provider is
 unconfigured **and** `DEV_MAGIC_LINK=true` is set — on a provider *error* (e.g. a
 Resend outage) the panel returns a plain "could not send" error and never leaks
 the login link, because a magic link is a bearer credential.
+
+## Sessions & rotating SESSION_SECRET
+
+Panel sessions (`kantan_session`, 7 days) and the wizard token cookie (15 minutes)
+are stateless HMAC-signed cookies — there is no server-side session store, so
+logout clears the cookie client-side and there is no per-session revocation. The
+revocation primitive is the signing secret itself:
+
+- `SESSION_SECRET` — the current signing key (signing always uses this).
+- `SESSION_SECRET_PREVIOUS` — optional; set ONLY during a rotation window.
+  Verification tries the current secret first, then this one, so cookies signed
+  with the old secret keep working until it is dropped.
+
+**Rotation runbook** (invalidates nothing until step 3, then everything old by
+step 5; total window ≤ 72 h):
+
+1. `npx wrangler secret put SESSION_SECRET_PREVIOUS` — paste the CURRENT
+   `SESSION_SECRET` value.
+2. Rotate: `npx wrangler secret put SESSION_SECRET` — paste a fresh random
+   string. New sessions sign with the new key; old cookies still verify.
+3. Wait up to 72 h (one session-age window) for users to drift back.
+4. `npx wrangler secret delete SESSION_SECRET_PREVIOUS`.
+5. Redeploy not required for secret changes (workers read secrets fresh per
+   request), but the dashboard's deployment list is your audit trail.
+
+If the secret is *leaked* (not just rotated), skip the grace window: rotate and
+delete `SESSION_SECRET_PREVIOUS` immediately — every outstanding session and
+wizard cookie dies at once.
 
 ## Rate limiting (layered)
 
