@@ -290,7 +290,9 @@ function panelBase(env, request) {
 // SESSION_SECRET_PREVIOUS) is the session-revocation primitive: every
 // outstanding cookie signed with the old secret keeps working until the
 // previous var is dropped — see README "Rotating SESSION_SECRET".
-async function verifyAnySecret(env, token) {
+// Exported for test/session-rotation.test.mjs (pins the contract: current
+// first, previous fallback, null when neither matches).
+export async function verifyAnySecret(env, token) {
   return (
     (await verifyPayload(env.SESSION_SECRET, token)) ||
     (env.SESSION_SECRET_PREVIOUS ? verifyPayload(env.SESSION_SECRET_PREVIOUS, token) : null)

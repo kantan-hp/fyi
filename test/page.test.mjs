@@ -210,11 +210,24 @@ test('loginPage escapes a server-supplied error string', () => {
 });
 
 test('i18nScript escapes < > and line separators in the string table', () => {
-  // A translation containing </script> must not break out of the inline block.
+  // The blob is JSON.stringify + (<, >, U+2028, U+2029) escaping of the string
+  // table. `>` must be escaped too: without it the known `<name>` translations
+  // render raw inside the inline script, and any future translation gains a
+  // second `<`-kill layer. Assert against KNOWN table content so removing any
+  // of the replaces fails this test.
   const p = loginPage({}, {});
   assert.ok(p.includes('window.I18N = {'), 'i18n blob embedded');
   assert.ok(p.includes('<script>window.I18N'), 'inline i18n script present');
-  // No raw "</scr" + "ipt>" sequence may appear inside the JSON payload.
   const blob = p.split('window.I18N = ')[1].split(';</script>')[0];
-  assert.ok(!blob.includes('</script'), 'JSON payload cannot close the script');
+  // JSON.stringify alone emits literal < > : the replace chain must remove
+  // every one of them, so the payload contains NO raw < or > at all.
+  assert.ok(!blob.includes('<'), 'no raw < in the payload (escapes </script>)');
+  assert.ok(!blob.includes('>'), 'no raw > in the payload');
+  // Known translations containing < > appear only in escaped form.
+  assert.ok(blob.includes('\\u003cname\\u003e'), '<name> is \\u003cname\\u003e in the payload');
+  // U+2028/U+2029 escape to their literal \u2028/\u2029 forms, never raw.
+  assert.ok(!/[\u2028\u2029]/.test(blob), 'no raw U+2028/U+2029 in the payload');
+  // And the whole thing must parse back to the real string table.
+  const parsed = JSON.parse(blob);
+  assert.equal(parsed.assignBranded, 'Assign me <name>.kantan-hp.fyi too');
 });

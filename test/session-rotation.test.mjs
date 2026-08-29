@@ -1,21 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { signPayload, verifyPayload } from '../src/lib.js';
+import { signPayload } from '../src/lib.js';
+// Import the SHIPPED verifyAnySecret (exported from the worker module) — not a
+// local re-implementation — so a regression in src/index.js (dropped fallback,
+// reversed order, broken await) fails these tests. Importing src/index.js pulls
+// in lib.js/page.js/i18n.js; those are dependency-free and safe under plain
+// node --test.
+const { verifyAnySecret } = await import('../src/index.js');
 
-// The session-rotation fallback: verifyAnySecret in src/index.js tries the
-// CURRENT secret first, then SESSION_SECRET_PREVIOUS. The worker helper isn't
-// exported, so mirror its exact semantics here against the same primitives it
-// composes — this pins the contract (current first, prev fallback, null when
-// neither matches) that the runbook in README depends on.
-
-async function verifyAnySecret(env, token) {
-  return (
-    (await verifyPayload(env.SESSION_SECRET, token)) ||
-    (env.SESSION_SECRET_PREVIOUS ? verifyPayload(env.SESSION_SECRET_PREVIOUS, token) : null)
-  );
-}
-
-test('session rotation: old cookie verifies while PREVIOUS is set (grace window)', async () => {
+test('verifyAnySecret: old cookie verifies while PREVIOUS is set (grace window)', async () => {
   const oldSecret = 'old-secret';
   const newSecret = 'new-secret';
   const oldCookie = await signPayload(oldSecret, { sub: 'a@b.co' });
@@ -35,8 +28,24 @@ test('session rotation: old cookie verifies while PREVIOUS is set (grace window)
   assert.equal(await verifyAnySecret({ SESSION_SECRET: newSecret }, oldCookie), null);
 });
 
-test('rotation fallback never accepts a cookie signed with an unrelated secret', async () => {
+test('verifyAnySecret never accepts a cookie signed with an unrelated secret', async () => {
   const cookie = await signPayload('attacker-secret', { sub: 'evil@x.co' });
   const env = { SESSION_SECRET: 'new-secret', SESSION_SECRET_PREVIOUS: 'old-secret' };
   assert.equal(await verifyAnySecret(env, cookie), null);
+});
+
+test('verifyAnySecret: current secret wins before previous is consulted (pin the order)', async () => {
+  // The order matters: signing always moves to the CURRENT secret, so a token
+  // valid under both must report the same payload either way — but a cookie
+  // that is INVALID under current yet valid under previous must still verify
+  // (that is exactly the rotation window). A cookie invalid under both is null.
+  const prev = 'prev-secret';
+  const cookie = await signPayload(prev, { sub: 'a@b.co' });
+  assert.match(
+    JSON.stringify(await verifyAnySecret({ SESSION_SECRET: 'current', SESSION_SECRET_PREVIOUS: prev }, cookie)),
+    /a@b\.co/,
+  );
+  // Missing token → null under both paths.
+  assert.equal(await verifyAnySecret({ SESSION_SECRET: 's' }, undefined), null);
+  assert.equal(await verifyAnySecret({ SESSION_SECRET: 's', SESSION_SECRET_PREVIOUS: 'p' }, undefined), null);
 });
