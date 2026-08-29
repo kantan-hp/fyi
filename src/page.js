@@ -533,6 +533,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
 
     <script>
       const $ = (id) => document.getElementById(id);
+      const q = (sel, val) => document.querySelector('[data-' + sel + '="' +
+        (window.CSS && CSS.escape ? CSS.escape(val) : String(val).replace(/["\\\\]/g, '\\\\$&')) + '"]');
       // Hoisted so esc/jsStr are initialized before any use (avoid the TDZ
       // window their old location created).
       const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -829,8 +831,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       };
 
       const toggleDetail = (origin) => {
-        const detail = document.querySelector('[data-detail="' + origin + '"]');
-        const btn = document.querySelector('[data-more="' + origin + '"]');
+        const detail = q('detail', origin);
+        const btn = q('more', origin);
         if (detail) {
           const nowHidden = detail.classList.toggle('hidden');
           if (btn) btn.classList.toggle('active', !nowHidden);
@@ -847,8 +849,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       });
 
       const renderCheck = (origin, data) => {
-        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
-        const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
+        const upgCell = q('upg', origin);
+        const reasonCell = q('reason', origin);
         if (!upgCell) return;
         if (data && data.upgradeable) {
           upgCell.innerHTML = upgHtml(data);
@@ -868,8 +870,8 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       };
 
       const renderCheckButton = (origin, reason) => {
-        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
-        const reasonCell = document.querySelector('[data-reason="' + origin + '"]');
+        const upgCell = q('upg', origin);
+        const reasonCell = q('reason', origin);
         if (reasonCell) reasonCell.innerHTML = reason ? '<span class="err">' + esc(reason) + '</span>' : '';
         if (upgCell) {
           upgCell.innerHTML = '<button class="btn" style="padding:.3rem .7rem; font-size:.8rem" data-check="' + esc(origin) + '">' + esc(window.I18N.check) + '</button>';
@@ -877,7 +879,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
       };
 
       const runCheck = async (origin, { fromReturn = false } = {}) => {
-        const upgCell = document.querySelector('[data-upg="' + origin + '"]');
+        const upgCell = q('upg', origin);
         if (upgCell) upgCell.innerHTML = '<span class="muted" style="font-size:.8rem">' + esc(window.I18N.checking) + '</span>';
         const data = await apiPost('/api/sites/check', { origin });
         if (!data) {
@@ -900,10 +902,10 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         const pending = localStorage.getItem('kantan-check-site');
         if (!pending) return;
         localStorage.removeItem('kantan-check-site');
-        const detail = document.querySelector('[data-detail="' + pending + '"]');
+        const detail = q('detail', pending);
         if (detail) {
           detail.classList.remove('hidden');
-          const btn = document.querySelector('[data-more="' + pending + '"]');
+          const btn = q('more', pending);
           if (btn) btn.classList.add('active');
         }
         runCheck(pending, { fromReturn: true });
@@ -989,7 +991,7 @@ export function appPage({ email, sites, hasSites }, { turnstileSitekey, locale =
         }
         if (data.ok) {
           renderCheckButton(origin, null);
-          const cell = document.querySelector('[data-reason="' + origin + '"]');
+          const cell = q('reason', origin);
           if (cell) cell.innerHTML = '<span class="ok">' + esc(window.I18N.baselineComplete) + '</span>';
         }
       }
