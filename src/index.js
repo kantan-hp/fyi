@@ -1523,6 +1523,10 @@ async function provision(request, env) {
           });
           const cfgRes = await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`);
           const config = JSON.parse(b64decode(cfgRes.content));
+          // Unconditional overwrite (unlike 8a's title write for imports):
+          // site.url is the deploy origin, not a content choice, and astro
+          // gives it precedence over PUBLIC_SITE_URL. An imported config's
+          // stale origin must not out-rank the domain the user just attached.
           if (config && config.site) {
             config.site.url = customDomain;
             await ghJson(ghT, `/repos/${login}/${slug}/contents/src/config.json`, {
